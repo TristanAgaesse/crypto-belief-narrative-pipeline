@@ -1,0 +1,9 @@
+{"timestamp":"2026-05-06T10:00:00Z","market_id":"pm_btc_reserve_001","outcome":"Yes","price":0.32,"best_bid":0.31,"best_ask":0.33,"liquidity":125000.0,"volume":850000.0,"raw":{"source":"sample"}}
+{"timestamp":"2026-05-06T11:00:00Z","market_id":"pm_btc_reserve_001","outcome":"Yes","price":0.43,"best_bid":0.42,"best_ask":0.44,"liquidity":127000.0,"volume":870000.0,"raw":{"source":"sample"}}
+{"timestamp":"2026-05-06T12:00:00Z","market_id":"pm_btc_reserve_001","outcome":"Yes","price":0.48,"best_bid":0.47,"best_ask":0.50,"liquidity":130000.0,"volume":910000.0,"raw":{"source":"sample"}}
+{"timestamp":"2026-05-06T10:00:00Z","market_id":"pm_eth_etf_staking_001","outcome":"Yes","price":0.21,"best_bid":0.20,"best_ask":0.22,"liquidity":92000.0,"volume":410000.0,"raw":{"source":"sample"}}
+{"timestamp":"2026-05-06T11:00:00Z","market_id":"pm_eth_etf_staking_001","outcome":"Yes","price":0.24,"best_bid":0.23,"best_ask":0.25,"liquidity":93000.0,"volume":420000.0,"raw":{"source":"sample"}}
+{"timestamp":"2026-05-06T12:00:00Z","market_id":"pm_eth_etf_staking_001","outcome":"Yes","price":0.23,"best_bid":0.22,"best_ask":0.24,"liquidity":94000.0,"volume":425000.0,"raw":{"source":"sample"}}
+{"timestamp":"2026-05-06T10:00:00Z","market_id":"pm_sol_etf_001","outcome":"Yes","price":0.16,"best_bid":0.15,"best_ask":0.17,"liquidity":77000.0,"volume":350000.0,"raw":{"source":"sample"}}
+{"timestamp":"2026-05-06T11:00:00Z","market_id":"pm_sol_etf_001","outcome":"Yes","price":0.29,"best_bid":0.28,"best_ask":0.31,"liquidity":80000.0,"volume":390000.0,"raw":{"source":"sample"}}
+{"timestamp":"2026-05-06T12:00:00Z","market_id":"pm_sol_etf_001","outcome":"Yes","price":0.34,"best_bid":0.33,"best_ask":0.36,"liquidity":82000.0,"volume":430000.0,"raw":{"source":"sample"}}
