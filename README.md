@@ -13,7 +13,7 @@ This project is **research infrastructure**, not an execution system: it is desi
 - **Portable IO**: the same S3 APIs work for MinIO (local) and real S3 later.
 - **Testability**: core path/config logic is covered by unit tests without requiring Docker.
 
-## Quickstart (Step 1)
+## Quickstart (Step 1–2)
 From the project root:
 
 ```bash
@@ -30,6 +30,17 @@ make minio-up
 make ensure-bucket
 make check-config
 ```
+
+Run the sample pipeline (no live APIs):
+
+```bash
+make run-sample
+```
+
+This writes a local S3-style lake layout into your MinIO bucket:
+- `raw/`: immutable source-shaped JSONL
+- `bronze/`: typed source-shaped Parquet
+- `silver/`: normalized research-ready Parquet
 
 MinIO console:
 - `http://localhost:9001`
@@ -62,7 +73,9 @@ Planned sources (later steps):
 - GDELT TimelineVol
 
 ## Current step status
-**Step 1 (this step)**: scaffold + MinIO + config + lake helpers + tests + CI.
+**Step 1**: scaffold + MinIO + config + lake helpers + tests + CI.
+
+**Step 2**: committed sample inputs + raw→bronze→silver transforms + `make run-sample` (no network calls).
 
 Next steps add collectors and transformation layers.
 
