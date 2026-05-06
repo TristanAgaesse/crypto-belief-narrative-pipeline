@@ -77,7 +77,42 @@ Planned sources (later steps):
 
 **Step 2**: committed sample inputs + raw→bronze→silver transforms + `make run-sample` (no network calls).
 
-Next steps add collectors and transformation layers.
+**Step 3**: live collectors for Polymarket Gamma, Binance USD-M klines, and GDELT TimelineVol. Live collectors write the **same raw JSONL contracts** as the Step 2 sample files, so the existing normalizers handle both unchanged.
+
+### Step 3 commands
+
+Smoke-test the public APIs (does not write to the lake):
+
+```bash
+make smoke-test-apis
+```
+
+Fetch live raw data for a date and write JSONL to the lake:
+
+```bash
+RUN_DATE=$(date +%F) make fetch-live
+```
+
+Run the full live pipeline (ensure bucket, fetch live raw, transform to bronze + silver):
+
+```bash
+make minio-up
+make ensure-bucket
+RUN_DATE=$(date +%F) make run-live
+```
+
+The deterministic, network-free path (`make run-sample`) continues to work and is the recommended evaluation path. Live collection is optional — its purpose is to prove the same raw contracts work on real APIs.
+
+### Live raw keys
+
+```
+raw/provider=polymarket/date=YYYY-MM-DD/live_markets.jsonl
+raw/provider=polymarket/date=YYYY-MM-DD/live_prices.jsonl
+raw/provider=binance/date=YYYY-MM-DD/live_klines.jsonl
+raw/provider=gdelt/date=YYYY-MM-DD/live_timeline.jsonl
+```
+
+Next steps add features, labels, and event-study/research outputs.
 
 ## Important disclaimer
 This repository **does not claim** a profitable trading strategy. It’s a framework for testing hypotheses with better data hygiene and faster iteration.
