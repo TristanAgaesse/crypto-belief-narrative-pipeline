@@ -1,0 +1,22 @@
+polymarket:
+  limit: 100
+  active: true
+  closed: false
+  keywords:
+    - bitcoin
+    - btc
+    - ethereum
+    - eth
+    - solana
+    - sol
+    - crypto
+    - stablecoin
+    - coinbase
+    - binance
+    - sec
+    - etf
+    - fed
+    - inflation
+    - rate cut
+    - election
+    - cpi

@@ -1,0 +1,22 @@
+narratives:
+  bitcoin_reserve:
+    query: '"strategic bitcoin reserve" OR "bitcoin reserve"'
+    assets: ["BTC"]
+  bitcoin_etf:
+    query: '"bitcoin ETF" OR "BTC ETF"'
+    assets: ["BTC"]
+  ethereum_staking_etf:
+    query: '"ethereum staking ETF" OR "ETH staking ETF"'
+    assets: ["ETH"]
+  ethereum_etf:
+    query: '"ethereum ETF" OR "ETH ETF"'
+    assets: ["ETH"]
+  solana_etf:
+    query: '"solana ETF" OR "SOL ETF"'
+    assets: ["SOL"]
+  crypto_regulation:
+    query: '"crypto regulation" OR "SEC crypto" OR "digital asset regulation"'
+    assets: ["BTC", "ETH", "SOL"]
+  fed_rates:
+    query: '"Fed rate cut" OR "Federal Reserve rates" OR "interest rates"'
+    assets: ["BTC", "ETH", "SOL"]
