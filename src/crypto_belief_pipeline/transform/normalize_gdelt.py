@@ -22,6 +22,8 @@ def _ingested_at_expr() -> pl.Expr:
 
 
 def _raw_json(records: list[dict]) -> list[str]:
+    """Serialize vendor lineage for the bronze ``raw_json`` column."""
+
     return [json.dumps(r.get("raw") or r, ensure_ascii=False) for r in records]
 
 
@@ -40,7 +42,11 @@ def normalize_timeline(records: list[dict]) -> pl.DataFrame:
             }
         )
 
-    df = pl.DataFrame(records).with_columns(pl.Series("raw_json", _raw_json(records)))
+    # Omit ``raw`` (GDELT row dict) from the frame for the same pattern as other providers:
+    # bronze reads only the flat Step-2 fields; full lineage is stored once in ``raw_json``.
+    # Avoids an extra struct column and keeps frame construction aligned with Polymarket/Binance.
+    slim = [{k: v for k, v in r.items() if k != "raw"} for r in records]
+    df = pl.DataFrame(slim).with_columns(pl.Series("raw_json", _raw_json(records)))
 
     bronze = df.select(
         _parse_utc_ts("timestamp").alias("timestamp"),

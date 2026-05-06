@@ -8,13 +8,22 @@ import polars as pl
 _TS_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
-def _parse_utc_ts(col: str) -> pl.Expr:
+def _parse_utc_ts(col: str, *, strict: bool = True) -> pl.Expr:
+    parsed = pl.col(col).cast(pl.String).str.strptime(pl.Datetime, format=_TS_FORMAT, strict=strict)
+    return parsed.dt.replace_time_zone("UTC")
+
+
+def _parse_utc_ts_optional(col: str, *, out_name: str | None = None) -> pl.Expr:
+    """Parse ISO Z timestamps; null or blank strings stay null (Gamma often omits end dates)."""
+
+    name = out_name or col
+    s = pl.col(col).cast(pl.String)
+    parsed = s.str.strptime(pl.Datetime, format=_TS_FORMAT, strict=False)
     return (
-        pl.col(col)
-        .cast(pl.String)
-        .str.strptime(pl.Datetime, format=_TS_FORMAT, strict=True)
-        .dt.replace_time_zone("UTC")
-    )
+        pl.when(s.is_null() | (s.str.strip_chars() == ""))
+        .then(pl.lit(None, dtype=pl.Datetime(time_zone="UTC")))
+        .otherwise(parsed.dt.replace_time_zone("UTC"))
+    ).alias(name)
 
 
 def _ingested_at_expr() -> pl.Expr:
@@ -22,6 +31,8 @@ def _ingested_at_expr() -> pl.Expr:
 
 
 def _raw_json(records: list[dict]) -> list[str]:
+    """Serialize vendor lineage for the bronze ``raw_json`` column."""
+
     return [json.dumps(r.get("raw") or r, ensure_ascii=False) for r in records]
 
 
@@ -43,7 +54,11 @@ def normalize_markets(records: list[dict]) -> pl.DataFrame:
             }
         )
 
-    df = pl.DataFrame(records).with_columns(pl.Series("raw_json", _raw_json(records)))
+    # Omit ``raw`` (full Gamma market dict per row) from ``pl.DataFrame(...)``. It is deep and
+    # wide; Polars would build a heavy nested/struct column we never use in ``select``, while
+    # bronze columns are only the flat contract fields plus ``raw_json`` for lineage.
+    slim = [{k: v for k, v in r.items() if k != "raw"} for r in records]
+    df = pl.DataFrame(slim).with_columns(pl.Series("raw_json", _raw_json(records)))
 
     return df.select(
         pl.col("market_id").cast(pl.String),
@@ -52,7 +67,7 @@ def normalize_markets(records: list[dict]) -> pl.DataFrame:
         pl.col("category").cast(pl.String),
         pl.col("active").cast(pl.Boolean),
         pl.col("closed").cast(pl.Boolean),
-        _parse_utc_ts("end_date").alias("end_date"),
+        _parse_utc_ts_optional("end_date"),
         pl.col("liquidity").cast(pl.Float64),
         pl.col("volume").cast(pl.Float64),
         pl.col("raw_json").cast(pl.String),
@@ -77,7 +92,9 @@ def normalize_price_snapshots(records: list[dict]) -> pl.DataFrame:
             }
         )
 
-    df = pl.DataFrame(records).with_columns(pl.Series("raw_json", _raw_json(records)))
+    # Same as ``normalize_markets``: keep lineage in ``raw_json`` only, not as a DataFrame column.
+    slim = [{k: v for k, v in r.items() if k != "raw"} for r in records]
+    df = pl.DataFrame(slim).with_columns(pl.Series("raw_json", _raw_json(records)))
 
     bronze = (
         df.select(
@@ -91,7 +108,12 @@ def normalize_price_snapshots(records: list[dict]) -> pl.DataFrame:
             pl.col("volume").cast(pl.Float64),
             pl.col("raw_json").cast(pl.String),
         )
-        .with_columns((pl.col("best_ask") - pl.col("best_bid")).alias("spread"))
+        .with_columns(
+            pl.when(pl.col("best_bid").is_not_null() & pl.col("best_ask").is_not_null())
+            .then(pl.col("best_ask") - pl.col("best_bid"))
+            .otherwise(None)
+            .alias("spread")
+        )
         .with_columns(_ingested_at_expr())
     )
 

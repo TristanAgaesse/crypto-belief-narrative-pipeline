@@ -1,3 +1,5 @@
+from typing import Any
+
 import polars as pl
 import pytest
 
@@ -27,6 +29,45 @@ def test_normalize_markets_columns_and_rows() -> None:
         "ingested_at",
     }
     assert df.schema["end_date"] == pl.Datetime
+
+
+def test_normalize_markets_accepts_null_end_date() -> None:
+    records: list[dict[str, Any]] = [
+        {
+            "market_id": "m1",
+            "question": "Q?",
+            "slug": "q",
+            "category": None,
+            "active": True,
+            "closed": False,
+            "end_date": None,
+            "liquidity": 1.0,
+            "volume": 2.0,
+            "raw": {},
+        }
+    ]
+    df = normalize_markets(records)
+    assert df.height == 1
+    assert df["end_date"][0] is None
+
+
+def test_normalize_price_snapshots_null_spread_when_book_missing() -> None:
+    records = [
+        {
+            "timestamp": "2026-05-06T10:00:00Z",
+            "market_id": "m",
+            "outcome": "No",
+            "price": 0.4,
+            "best_bid": None,
+            "best_ask": None,
+            "liquidity": 1.0,
+            "volume": 2.0,
+            "raw": {},
+        }
+    ]
+    df = normalize_price_snapshots(records)
+    assert df.height == 1
+    assert df["spread"][0] is None
 
 
 def test_normalize_price_snapshots_spread() -> None:

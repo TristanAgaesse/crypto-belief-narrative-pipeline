@@ -1,9 +1,9 @@
-{"timestamp":"2026-05-06T10:00:00Z","narrative":"bitcoin_reserve","query":"\"strategic bitcoin reserve\" OR \"bitcoin reserve\"","mention_volume":0.00012,"avg_tone":1.2,"source":"gdelt_sample","raw":{"source":"sample"}}
-{"timestamp":"2026-05-06T11:00:00Z","narrative":"bitcoin_reserve","query":"\"strategic bitcoin reserve\" OR \"bitcoin reserve\"","mention_volume":0.00042,"avg_tone":2.1,"source":"gdelt_sample","raw":{"source":"sample"}}
-{"timestamp":"2026-05-06T12:00:00Z","narrative":"bitcoin_reserve","query":"\"strategic bitcoin reserve\" OR \"bitcoin reserve\"","mention_volume":0.00055,"avg_tone":2.3,"source":"gdelt_sample","raw":{"source":"sample"}}
-{"timestamp":"2026-05-06T10:00:00Z","narrative":"ethereum_staking_etf","query":"\"ethereum\" AND (\"staking etf\" OR \"staked etf\")","mention_volume":0.00008,"avg_tone":0.9,"source":"gdelt_sample","raw":{"source":"sample"}}
-{"timestamp":"2026-05-06T11:00:00Z","narrative":"ethereum_staking_etf","query":"\"ethereum\" AND (\"staking etf\" OR \"staked etf\")","mention_volume":0.00015,"avg_tone":1.4,"source":"gdelt_sample","raw":{"source":"sample"}}
-{"timestamp":"2026-05-06T12:00:00Z","narrative":"ethereum_staking_etf","query":"\"ethereum\" AND (\"staking etf\" OR \"staked etf\")","mention_volume":0.00011,"avg_tone":1.1,"source":"gdelt_sample","raw":{"source":"sample"}}
-{"timestamp":"2026-05-06T10:00:00Z","narrative":"solana_etf","query":"\"solana\" AND \"etf\"","mention_volume":0.00006,"avg_tone":1.0,"source":"gdelt_sample","raw":{"source":"sample"}}
-{"timestamp":"2026-05-06T11:00:00Z","narrative":"solana_etf","query":"\"solana\" AND \"etf\"","mention_volume":0.00019,"avg_tone":1.8,"source":"gdelt_sample","raw":{"source":"sample"}}
-{"timestamp":"2026-05-06T12:00:00Z","narrative":"solana_etf","query":"\"solana\" AND \"etf\"","mention_volume":0.00027,"avg_tone":2.0,"source":"gdelt_sample","raw":{"source":"sample"}}
+{"timestamp":"2026-05-06T10:00:00Z","narrative":"bitcoin_reserve","query":"\"strategic bitcoin reserve\" OR \"bitcoin reserve\"","mention_volume":0.00012,"avg_tone":1.2,"source":"gdelt","raw":{"source":"sample"}}
+{"timestamp":"2026-05-06T11:00:00Z","narrative":"bitcoin_reserve","query":"\"strategic bitcoin reserve\" OR \"bitcoin reserve\"","mention_volume":0.00042,"avg_tone":2.1,"source":"gdelt","raw":{"source":"sample"}}
+{"timestamp":"2026-05-06T12:00:00Z","narrative":"bitcoin_reserve","query":"\"strategic bitcoin reserve\" OR \"bitcoin reserve\"","mention_volume":0.00055,"avg_tone":2.3,"source":"gdelt","raw":{"source":"sample"}}
+{"timestamp":"2026-05-06T10:00:00Z","narrative":"ethereum_staking_etf","query":"\"ethereum\" AND (\"staking etf\" OR \"staked etf\")","mention_volume":0.00008,"avg_tone":0.9,"source":"gdelt","raw":{"source":"sample"}}
+{"timestamp":"2026-05-06T11:00:00Z","narrative":"ethereum_staking_etf","query":"\"ethereum\" AND (\"staking etf\" OR \"staked etf\")","mention_volume":0.00015,"avg_tone":1.4,"source":"gdelt","raw":{"source":"sample"}}
+{"timestamp":"2026-05-06T12:00:00Z","narrative":"ethereum_staking_etf","query":"\"ethereum\" AND (\"staking etf\" OR \"staked etf\")","mention_volume":0.00011,"avg_tone":1.1,"source":"gdelt","raw":{"source":"sample"}}
+{"timestamp":"2026-05-06T10:00:00Z","narrative":"solana_etf","query":"\"solana\" AND \"etf\"","mention_volume":0.00006,"avg_tone":1.0,"source":"gdelt","raw":{"source":"sample"}}
+{"timestamp":"2026-05-06T11:00:00Z","narrative":"solana_etf","query":"\"solana\" AND \"etf\"","mention_volume":0.00019,"avg_tone":1.8,"source":"gdelt","raw":{"source":"sample"}}
+{"timestamp":"2026-05-06T12:00:00Z","narrative":"solana_etf","query":"\"solana\" AND \"etf\"","mention_volume":0.00027,"avg_tone":null,"source":"gdelt","raw":{"source":"sample"}}

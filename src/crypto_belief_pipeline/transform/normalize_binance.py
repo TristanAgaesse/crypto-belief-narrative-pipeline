@@ -28,6 +28,8 @@ def _ingested_at_expr() -> pl.Expr:
 
 
 def _raw_json(records: list[dict]) -> list[str]:
+    """Serialize vendor lineage for the bronze ``raw_json`` column."""
+
     return [json.dumps(r.get("raw") or r, ensure_ascii=False) for r in records]
 
 
@@ -51,7 +53,12 @@ def normalize_klines(records: list[dict]) -> pl.DataFrame:
             }
         )
 
-    df = pl.DataFrame(records).with_columns(pl.Series("raw_json", _raw_json(records)))
+    # Step-2 records include ``raw``: the exact kline array returned by Binance (ints for
+    # times, strings for prices/volumes). Polars cannot infer a single dtype for that column
+    # (it tries e.g. Int64, then fails on the first string). Bronze only needs the typed
+    # fields we already parse in the collector; lineage lives in ``raw_json`` via ``_raw_json``.
+    slim = [{k: v for k, v in r.items() if k != "raw"} for r in records]
+    df = pl.DataFrame(slim).with_columns(pl.Series("raw_json", _raw_json(records)))
 
     bronze = df.select(
         _parse_utc_ts("open_time").alias("timestamp"),
