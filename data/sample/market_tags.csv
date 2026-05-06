@@ -1,0 +1,4 @@
+market_id,asset,narrative,direction,relevance,confidence,notes
+sample_btc_etf,BTC,bitcoin_etf,1,high,0.9,Rising probability likely bullish BTC
+sample_sol_etf,SOL,solana_etf,1,high,0.8,Rising probability likely bullish SOL
+sample_exchange_risk,BTC,exchange_risk,-1,medium,0.7,Rising probability likely bearish broad crypto
