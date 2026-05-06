@@ -5,6 +5,7 @@ import typer
 from crypto_belief_pipeline.config import get_settings
 from crypto_belief_pipeline.lake.paths import partition_path
 from crypto_belief_pipeline.lake.s3 import ensure_bucket_exists
+from crypto_belief_pipeline.transform.run_sample_pipeline import run_sample_pipeline
 
 app = typer.Typer(add_completion=False)
 
@@ -34,6 +35,15 @@ def print_lake_prefix(
 ) -> None:
     d: str | date = dt or date.today()
     typer.echo(partition_path(layer, dataset, d))
+
+
+@app.command("run-sample")
+def run_sample(
+    dt: str = typer.Option("2026-05-06", "--date", help="YYYY-MM-DD"),
+) -> None:
+    written = run_sample_pipeline(run_date=dt)
+    for name in sorted(written.keys()):
+        typer.echo(f"{name} {written[name]}")
 
 
 def main() -> None:

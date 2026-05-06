@@ -1,6 +1,7 @@
 SHELL := /bin/bash
+DATE ?= 2026-05-06
 
-.PHONY: setup lint format test minio-up minio-down ensure-bucket check-config
+.PHONY: setup lint format test minio-up minio-down ensure-bucket check-config run-sample
 
 setup:
 	python3.11 -m venv .venv
@@ -28,3 +29,6 @@ ensure-bucket:
 
 check-config:
 	. .venv/bin/activate && python -m crypto_belief_pipeline.cli check-config
+
+run-sample: ensure-bucket
+	. .venv/bin/activate && python -m crypto_belief_pipeline.cli run-sample --date $(DATE)
