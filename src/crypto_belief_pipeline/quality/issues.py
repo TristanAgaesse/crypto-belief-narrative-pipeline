@@ -9,17 +9,37 @@ import polars as pl
 
 from crypto_belief_pipeline.features.market_tags import load_market_tags
 from crypto_belief_pipeline.lake.paths import partition_path
-from crypto_belief_pipeline.lake.read import read_parquet_df
+from crypto_belief_pipeline.lake.read import (
+    LakeKeyNotFound,
+    read_parquet_df,
+    read_parquet_partition_df,
+)
 
 
 def _as_date_str(run_date: date | str) -> str:
     return run_date.isoformat() if isinstance(run_date, date) else str(run_date)
 
 
-def _safe_read_parquet(key: str) -> pl.DataFrame:
+def _safe_read_partition(partition_prefix: str, bucket: str | None = None) -> pl.DataFrame:
+    """Read silver partition data, supporting single-file and microbatch layouts.
+
+    Returns an empty DataFrame for genuinely missing partitions; lets unexpected
+    failures (auth, transport, parse errors) propagate so they remain visible
+    instead of being silently reported as ``empty``.
+    """
+
     try:
-        return read_parquet_df(key)
-    except Exception:
+        return read_parquet_partition_df(partition_prefix, bucket=bucket)
+    except LakeKeyNotFound:
+        return pl.DataFrame()
+
+
+def _safe_read_single(key: str, bucket: str | None = None) -> pl.DataFrame:
+    """Read a single canonical parquet file, treating not-found as empty."""
+
+    try:
+        return read_parquet_df(key, bucket=bucket)
+    except LakeKeyNotFound:
         return pl.DataFrame()
 
 
@@ -45,23 +65,29 @@ def _issue(
 def detect_data_issues(
     run_date: date | str,
     market_tags_path: str | Path = "data/sample/market_tags.csv",
+    *,
+    bucket: str | None = None,
 ) -> list[dict]:
+    """Run domain-specific data issue detection over the lake's silver + gold layers.
+
+    ``bucket`` lets sample-mode callers route reads to the dedicated sample
+    bucket. Leave unset for live runs (uses ``s3_bucket`` from settings).
+    """
+
     rd = _as_date_str(run_date)
 
-    # Silver keys
-    belief_key = f"{partition_path('silver', 'belief_price_snapshots', rd)}/data.parquet"
-    candles_key = f"{partition_path('silver', 'crypto_candles_1m', rd)}/data.parquet"
-    narrative_key = f"{partition_path('silver', 'narrative_counts', rd)}/data.parquet"
+    belief_partition = partition_path("silver", "belief_price_snapshots", rd)
+    candles_partition = partition_path("silver", "crypto_candles_1m", rd)
+    narrative_partition = partition_path("silver", "narrative_counts", rd)
 
-    # Gold keys
     training_key = f"{partition_path('gold', 'training_examples', rd)}/data.parquet"
     live_key = f"{partition_path('gold', 'live_signals', rd)}/data.parquet"
 
-    belief = _safe_read_parquet(belief_key)
-    candles = _safe_read_parquet(candles_key)
-    narrative = _safe_read_parquet(narrative_key)
-    training = _safe_read_parquet(training_key)
-    live = _safe_read_parquet(live_key)
+    belief = _safe_read_partition(belief_partition, bucket=bucket)
+    candles = _safe_read_partition(candles_partition, bucket=bucket)
+    narrative = _safe_read_partition(narrative_partition, bucket=bucket)
+    training = _safe_read_single(training_key, bucket=bucket)
+    live = _safe_read_single(live_key, bucket=bucket)
 
     issues: list[dict] = []
 

@@ -67,11 +67,12 @@ def _sql_quote(value: str) -> str:
 
 
 def _lake_key(relative_key: str) -> str:
-    """Apply configured `s3_prefix` to lake-relative paths.
+    """Resolve a lake-relative path to its on-bucket key.
 
-    This keeps DuckDB views aligned with `read_parquet_df` / `write_parquet_df`, which also apply
-    `s3_prefix` via `full_s3_key(...)`. It's especially important for sample runs that use an
-    isolated prefix like `__sample__`.
+    Applies the configured ``s3_prefix`` via :func:`full_s3_key`. Sample runs
+    keep the same key layout but live in a separate bucket, so no per-key
+    prefix override is needed here — the bucket is overridden at the
+    DuckDB-view URI level instead.
     """
 
     # Tests may patch `partition_path` to return absolute local filesystem paths. In that case,
@@ -81,16 +82,40 @@ def _lake_key(relative_key: str) -> str:
     return full_s3_key(relative_key)
 
 
+def _silver_partition_glob(rd: str, dataset: str) -> str:
+    """Glob covering both single-file and microbatch silver layouts.
+
+    Examples:
+      - ``silver/<dataset>/date=YYYY-MM-DD/data.parquet``
+      - ``silver/<dataset>/date=YYYY-MM-DD/hour=HH/batch_id=*.parquet``
+    """
+
+    base = partition_path("silver", dataset, rd)
+    return f"{base}/**/*.parquet"
+
+
+def _gold_single_file(rd: str, dataset: str) -> str:
+    return f"{partition_path('gold', dataset, rd)}/data.parquet"
+
+
 def create_duckdb_quality_db(
     run_date: date | str,
     db_path: str | Path = "data/quality/crypto_lake.duckdb",
     *,
     materialize_tables: bool = False,
+    bucket: str | None = None,
 ) -> Path:
     """Create DuckDB views (default) over lake Parquet for a given run_date.
 
     Default behavior is lakehouse-style: Parquet in the lake remains source of truth, and
     DuckDB exposes external views via read_parquet(...).
+
+    Silver tables resolve to a recursive glob so they work for both single-file
+    (``data.parquet``) and Dagster microbatch (``hour=HH/batch_id=*.parquet``) layouts.
+
+    ``bucket`` overrides the lake bucket for both silver and gold lookups. Sample
+    runs pass the dedicated sample bucket here; live runs leave it ``None`` and
+    fall back to the configured ``s3_bucket``.
 
     If materialize_tables=True, the Parquet is materialized into DuckDB tables as an
     opt-in fallback for CI/debug.
@@ -100,41 +125,35 @@ def create_duckdb_quality_db(
     rd = _as_date_str(run_date)
     dbp = Path(db_path)
     _ensure_parent(dbp)
+    target_bucket = bucket or s.s3_bucket
 
-    tables: dict[str, str] = {
-        "silver_belief_price_snapshots": (
-            _lake_key(f"{partition_path('silver', 'belief_price_snapshots', rd)}/data.parquet")
+    silver_globs: dict[str, str] = {
+        "silver_belief_price_snapshots": _lake_key(
+            _silver_partition_glob(rd, "belief_price_snapshots")
         ),
-        "silver_crypto_candles_1m": (
-            _lake_key(f"{partition_path('silver', 'crypto_candles_1m', rd)}/data.parquet")
-        ),
-        "silver_narrative_counts": (
-            _lake_key(f"{partition_path('silver', 'narrative_counts', rd)}/data.parquet")
-        ),
-        "gold_training_examples": _lake_key(
-            f"{partition_path('gold', 'training_examples', rd)}/data.parquet"
-        ),
-        "gold_live_signals": _lake_key(
-            f"{partition_path('gold', 'live_signals', rd)}/data.parquet"
-        ),
+        "silver_crypto_candles_1m": _lake_key(_silver_partition_glob(rd, "crypto_candles_1m")),
+        "silver_narrative_counts": _lake_key(_silver_partition_glob(rd, "narrative_counts")),
+    }
+    gold_keys: dict[str, str] = {
+        "gold_training_examples": _lake_key(_gold_single_file(rd, "training_examples")),
+        "gold_live_signals": _lake_key(_gold_single_file(rd, "live_signals")),
     }
 
     con = duckdb.connect(str(dbp))
     try:
         _configure_s3(con)
 
-        for name, key in tables.items():
-            uri = _s3_uri(key, bucket=s.s3_bucket)
-            if materialize_tables:
-                con.execute(
-                    f"CREATE OR REPLACE TABLE {name} AS "
-                    f"SELECT * FROM read_parquet({_sql_quote(uri)});"
-                )
-            else:
-                con.execute(
-                    f"CREATE OR REPLACE VIEW {name} AS "
-                    f"SELECT * FROM read_parquet({_sql_quote(uri)});"
-                )
+        for name, glob_key in silver_globs.items():
+            uri = _s3_uri(glob_key, bucket=target_bucket)
+            select_expr = f"SELECT * FROM read_parquet({_sql_quote(uri)}, union_by_name=true)"
+            verb = "TABLE" if materialize_tables else "VIEW"
+            con.execute(f"CREATE OR REPLACE {verb} {name} AS {select_expr};")
+
+        for name, key in gold_keys.items():
+            uri = _s3_uri(key, bucket=target_bucket)
+            select_expr = f"SELECT * FROM read_parquet({_sql_quote(uri)})"
+            verb = "TABLE" if materialize_tables else "VIEW"
+            con.execute(f"CREATE OR REPLACE {verb} {name} AS {select_expr};")
     finally:
         con.close()
 

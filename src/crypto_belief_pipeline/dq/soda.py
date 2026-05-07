@@ -23,11 +23,15 @@ def run_soda_checks(
     db_path: str | Path = "data/quality/crypto_lake.duckdb",
     *,
     materialize_tables: bool = False,
+    bucket: str | None = None,
 ) -> dict[str, Any]:
     """Run Soda Core checks against a DuckDB quality DB for the given run_date.
 
     Default behavior is external Parquet views (no duplication). For CI/debug, callers can
     set materialize_tables=True.
+
+    ``bucket`` lets sample-mode callers point views at the dedicated sample
+    bucket. Leave unset for live runs (uses ``s3_bucket`` from settings).
     """
 
     rd = _as_date_str(run_date)
@@ -35,7 +39,12 @@ def run_soda_checks(
     checks_dir = Path(checks_dir)
     db_path = Path(db_path)
 
-    create_duckdb_quality_db(rd, db_path=db_path, materialize_tables=materialize_tables)
+    create_duckdb_quality_db(
+        rd,
+        db_path=db_path,
+        materialize_tables=materialize_tables,
+        bucket=bucket,
+    )
 
     reports_dir = Path("reports")
     reports_dir.mkdir(parents=True, exist_ok=True)
