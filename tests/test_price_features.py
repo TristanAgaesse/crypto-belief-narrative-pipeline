@@ -61,3 +61,13 @@ def test_future_ret_24h_uses_t_plus_24h() -> None:
     out = build_price_features(candles)
     event = out.filter(pl.col("event_time") == datetime(2026, 5, 6, 10, 0, 0, tzinfo=UTC))
     assert event["future_ret_24h"][0] == pytest.approx(130.0 / 100.0 - 1.0)
+
+
+def test_price_features_include_pit_audit_columns() -> None:
+    candles = _build_candles({9: 99.0, 10: 100.0, 11: 110.0, 14: 130.0, 34: 150.0})
+    out = build_price_features(candles)
+    event_time = datetime(2026, 5, 6, 10, 0, 0, tzinfo=UTC)
+    event = out.filter(pl.col("event_time") == event_time)
+
+    assert event["asset_close_lag_1h_source_time"][0] == datetime(2026, 5, 6, 9, 0, 0, tzinfo=UTC)
+    assert event["future_close_1h_source_time"][0] == datetime(2026, 5, 6, 11, 0, 0, tzinfo=UTC)

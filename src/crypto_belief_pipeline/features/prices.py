@@ -39,33 +39,90 @@ def build_price_features(candles: pl.DataFrame) -> pl.DataFrame:
 
     joined = (
         base.join(
-            lookup.rename({"timestamp": "event_time_minus_1h", "close": "asset_close_lag_1h"}),
+            lookup.rename(
+                {
+                    "timestamp": "event_time_minus_1h",
+                    "close": "asset_close_lag_1h",
+                }
+            ),
             on=["asset", "event_time_minus_1h"],
             how="left",
         )
         .join(
-            lookup.rename({"timestamp": "event_time_minus_4h", "close": "asset_close_lag_4h"}),
+            lookup.rename(
+                {
+                    "timestamp": "event_time_minus_4h",
+                    "close": "asset_close_lag_4h",
+                }
+            ),
             on=["asset", "event_time_minus_4h"],
             how="left",
         )
         .join(
-            lookup.rename({"timestamp": "event_time_plus_1h", "close": "future_close_1h"}),
+            lookup.rename(
+                {
+                    "timestamp": "event_time_plus_1h",
+                    "close": "future_close_1h",
+                }
+            ),
             on=["asset", "event_time_plus_1h"],
             how="left",
         )
         .join(
-            lookup.rename({"timestamp": "event_time_plus_4h", "close": "future_close_4h"}),
+            lookup.rename(
+                {
+                    "timestamp": "event_time_plus_4h",
+                    "close": "future_close_4h",
+                }
+            ),
             on=["asset", "event_time_plus_4h"],
             how="left",
         )
         .join(
-            lookup.rename({"timestamp": "event_time_plus_24h", "close": "future_close_24h"}),
+            lookup.rename(
+                {
+                    "timestamp": "event_time_plus_24h",
+                    "close": "future_close_24h",
+                }
+            ),
             on=["asset", "event_time_plus_24h"],
             how="left",
         )
     )
 
-    with_returns = joined.with_columns(
+    # PIT audit: with exact joins, the chosen source timestamp equals the target timestamp
+    # when present.
+    with_audit = joined.with_columns(
+        pl.when(pl.col("asset_close_lag_1h").is_not_null())
+        .then(pl.col("event_time_minus_1h"))
+        .otherwise(None)
+        .alias("asset_close_lag_1h_source_time"),
+        pl.when(pl.col("asset_close_lag_4h").is_not_null())
+        .then(pl.col("event_time_minus_4h"))
+        .otherwise(None)
+        .alias("asset_close_lag_4h_source_time"),
+        pl.when(pl.col("future_close_1h").is_not_null())
+        .then(pl.col("event_time_plus_1h"))
+        .otherwise(None)
+        .alias("future_close_1h_source_time"),
+        pl.when(pl.col("future_close_4h").is_not_null())
+        .then(pl.col("event_time_plus_4h"))
+        .otherwise(None)
+        .alias("future_close_4h_source_time"),
+        pl.when(pl.col("future_close_24h").is_not_null())
+        .then(pl.col("event_time_plus_24h"))
+        .otherwise(None)
+        .alias("future_close_24h_source_time"),
+    ).with_columns(
+        (pl.col("event_time") - pl.col("asset_close_lag_1h_source_time")).alias(
+            "asset_close_lag_1h_age"
+        ),
+        (pl.col("event_time") - pl.col("asset_close_lag_4h_source_time")).alias(
+            "asset_close_lag_4h_age"
+        ),
+    )
+
+    with_returns = with_audit.with_columns(
         (pl.col("asset_close") / pl.col("asset_close_lag_1h") - 1.0).alias("asset_ret_past_1h"),
         (pl.col("asset_close") / pl.col("asset_close_lag_4h") - 1.0).alias("asset_ret_past_4h"),
         (pl.col("future_close_1h") / pl.col("asset_close") - 1.0).alias("future_ret_1h"),
@@ -79,11 +136,18 @@ def build_price_features(candles: pl.DataFrame) -> pl.DataFrame:
         "asset_close",
         "asset_close_lag_1h",
         "asset_close_lag_4h",
+        "asset_close_lag_1h_source_time",
+        "asset_close_lag_4h_source_time",
+        "asset_close_lag_1h_age",
+        "asset_close_lag_4h_age",
         "asset_ret_past_1h",
         "asset_ret_past_4h",
         "future_close_1h",
         "future_close_4h",
         "future_close_24h",
+        "future_close_1h_source_time",
+        "future_close_4h_source_time",
+        "future_close_24h_source_time",
         "future_ret_1h",
         "future_ret_4h",
         "future_ret_24h",
@@ -98,11 +162,18 @@ def _empty_output() -> pl.DataFrame:
             "asset_close": pl.Float64,
             "asset_close_lag_1h": pl.Float64,
             "asset_close_lag_4h": pl.Float64,
+            "asset_close_lag_1h_source_time": pl.Datetime,
+            "asset_close_lag_4h_source_time": pl.Datetime,
+            "asset_close_lag_1h_age": pl.Duration,
+            "asset_close_lag_4h_age": pl.Duration,
             "asset_ret_past_1h": pl.Float64,
             "asset_ret_past_4h": pl.Float64,
             "future_close_1h": pl.Float64,
             "future_close_4h": pl.Float64,
             "future_close_24h": pl.Float64,
+            "future_close_1h_source_time": pl.Datetime,
+            "future_close_4h_source_time": pl.Datetime,
+            "future_close_24h_source_time": pl.Datetime,
             "future_ret_1h": pl.Float64,
             "future_ret_4h": pl.Float64,
             "future_ret_24h": pl.Float64,

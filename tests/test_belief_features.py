@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import polars as pl
 import pytest
@@ -81,3 +81,44 @@ def test_belief_z_uses_floor_when_std_zero() -> None:
     assert "belief_shock_z_1h" in out.columns
     z_values = [v for v in out["belief_shock_z_1h"].to_list() if v is not None]
     assert all(abs(v) >= 0.0 for v in z_values)
+
+
+def test_belief_z_is_causal_future_rows_do_not_change_past_values() -> None:
+    # Build with 2 rows, then with an extra future row. Past z-scores must not change.
+    base = _build_snapshots([0.30, 0.40])
+    with_future = _build_snapshots([0.30, 0.40, 0.80])
+
+    out_base = build_belief_features(base, _tags()).sort("event_time")
+    out_future = build_belief_features(with_future, _tags()).sort("event_time")
+
+    t = _ts(11)
+    z1 = out_base.filter(pl.col("event_time") == t)["belief_shock_z_1h"][0]
+    z2 = out_future.filter(pl.col("event_time") == t)["belief_shock_z_1h"][0]
+    assert z1 == z2
+
+
+def test_belief_lags_use_asof_time_not_row_shift_for_irregular_timestamps() -> None:
+    # Irregular timestamps: lag should be chosen by timestamp-asof, not "previous row".
+    base = datetime(2026, 5, 6, 10, 5, 0, tzinfo=UTC)
+    ts = [base, base + timedelta(hours=1, minutes=-3), base + timedelta(hours=2, minutes=2)]
+    df = pl.DataFrame(
+        {
+            "timestamp": ts,
+            "platform": ["polymarket"] * 3,
+            "market_id": ["m1"] * 3,
+            "outcome": ["Yes"] * 3,
+            "price": [0.30, 0.35, 0.50],
+            "best_bid": [None] * 3,
+            "best_ask": [None] * 3,
+            "spread": [None] * 3,
+            "liquidity": [100000.0] * 3,
+            "volume": [200000.0] * 3,
+        }
+    )
+
+    out = build_belief_features(df, _tags()).sort("event_time")
+    last = out.filter(pl.col("event_time") == ts[2])
+
+    # For t=12:07, t-1h=11:07; as-of backward picks 11:02 snapshot (price=0.35).
+    assert last["price_lag_1h"][0] == pytest.approx(0.35)
+    assert last["price_lag_1h_source_time"][0] == ts[1]
