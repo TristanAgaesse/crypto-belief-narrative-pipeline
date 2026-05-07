@@ -6,6 +6,18 @@ from botocore.exceptions import ClientError
 
 from crypto_belief_pipeline.config import Settings, get_settings
 
+# botocore "standard" retry mode retries on throttling and transient 5xx
+# errors with exponential backoff. 5 attempts gives ~30s of total tolerance,
+# which is enough for short network blips without masking real failures.
+_DEFAULT_RETRY_CONFIG = {"max_attempts": 5, "mode": "standard"}
+
+
+def _build_boto_config() -> Config:
+    return Config(
+        s3={"addressing_style": "path"},
+        retries=_DEFAULT_RETRY_CONFIG,
+    )
+
 
 def get_s3_client(settings: Settings | None = None):
     s = settings or get_settings()
@@ -18,7 +30,7 @@ def get_s3_client(settings: Settings | None = None):
         aws_access_key_id=s.aws_access_key_id,
         aws_secret_access_key=s.aws_secret_access_key,
         region_name=s.aws_region,
-        config=Config(s3={"addressing_style": "path"}),
+        config=_build_boto_config(),
     )
 
 
