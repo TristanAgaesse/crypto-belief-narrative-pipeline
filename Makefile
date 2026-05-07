@@ -2,7 +2,8 @@ SHELL := /bin/bash
 DATE ?= 2026-05-06
 
 .PHONY: setup lint format test minio-up minio-down ensure-bucket check-config run-sample \
-	smoke-test-apis fetch-live run-live build-gold
+	smoke-test-apis fetch-live run-live build-gold dq detect-data-issues dagster-dev \
+	dagster-materialize-sample generate-reports full-sample
 
 setup:
 	python3.11 -m venv .venv
@@ -45,3 +46,26 @@ run-live: ensure-bucket
 
 build-gold:
 	. .venv/bin/activate && python -m crypto_belief_pipeline.cli build-gold --date $${RUN_DATE:-$(DATE)}
+
+dq:
+	. .venv/bin/activate && python -m crypto_belief_pipeline.cli run-soda-checks --date $${RUN_DATE:-$(DATE)}
+
+detect-data-issues:
+	. .venv/bin/activate && python -m crypto_belief_pipeline.cli detect-data-issues --date $${RUN_DATE:-$(DATE)}
+
+dagster-dev:
+	. .venv/bin/activate && dagster dev -m crypto_belief_pipeline.orchestration.definitions
+
+dagster-materialize-sample:
+	. .venv/bin/activate && dagster asset materialize --module crypto_belief_pipeline.orchestration.definitions --select raw_sample_inputs,bronze_polymarket,bronze_binance,bronze_gdelt,silver_belief_price_snapshots,silver_crypto_candles_1m,silver_narrative_counts,gold_tables,soda_data_quality,data_issues,markdown_reports
+
+generate-reports:
+	. .venv/bin/activate && python -m crypto_belief_pipeline.cli generate-reports --date $${RUN_DATE:-$(DATE)}
+
+full-sample:
+	$(MAKE) ensure-bucket
+	$(MAKE) run-sample
+	$(MAKE) build-gold
+	$(MAKE) dq
+	$(MAKE) detect-data-issues
+	$(MAKE) generate-reports

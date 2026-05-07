@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+import json
 from datetime import date, timedelta
+from pathlib import Path
 
 import typer
 
 from crypto_belief_pipeline.collectors.run_live_collectors import run_live_collectors
 from crypto_belief_pipeline.config import get_settings
+from crypto_belief_pipeline.dq.soda import run_soda_checks
 from crypto_belief_pipeline.features.build_gold import build_gold_tables
 from crypto_belief_pipeline.features.market_tags import DEFAULT_MARKET_TAGS_PATH
 from crypto_belief_pipeline.lake.paths import partition_path
 from crypto_belief_pipeline.lake.s3 import ensure_bucket_exists
+from crypto_belief_pipeline.quality.issues import detect_data_issues, write_data_issues_reports
 from crypto_belief_pipeline.transform.run_raw_to_silver import run_raw_to_silver
 from crypto_belief_pipeline.transform.run_sample_pipeline import run_sample_pipeline
 
@@ -196,6 +200,69 @@ def build_gold(
     written = build_gold_tables(run_date=dt, market_tags_path=market_tags_path)
     for name in sorted(written.keys()):
         typer.echo(f"{name} {written[name]}")
+
+
+@app.command("run-soda-checks")
+def cli_run_soda_checks(
+    dt: str = typer.Option(..., "--date", help="YYYY-MM-DD"),
+    materialize_tables: bool = typer.Option(
+        False,
+        "--materialize-tables",
+        help=(
+            "Debug/CI fallback: materialize Parquet into DuckDB tables "
+            "(default is external DuckDB views over Parquet)."
+        ),
+    ),
+) -> None:
+    summary = run_soda_checks(run_date=dt, materialize_tables=materialize_tables)
+    typer.echo(json.dumps(summary, indent=2, sort_keys=True))
+
+
+@app.command("detect-data-issues")
+def cli_detect_data_issues(
+    dt: str = typer.Option(..., "--date", help="YYYY-MM-DD"),
+    market_tags_path: str = typer.Option(
+        DEFAULT_MARKET_TAGS_PATH,
+        "--market-tags-path",
+        help="Path to manually curated market tags CSV.",
+    ),
+) -> None:
+    issues = detect_data_issues(run_date=dt, market_tags_path=market_tags_path)
+    paths = write_data_issues_reports(issues)
+    typer.echo(f"Wrote {paths['md']}")
+    typer.echo(f"Wrote {paths['json']}")
+    typer.echo(f"issues={len(issues)}")
+
+
+@app.command("generate-reports")
+def cli_generate_reports(
+    dt: str = typer.Option(..., "--date", help="YYYY-MM-DD"),
+) -> None:
+    """Generate a lightweight markdown index in reports/."""
+
+    reports_dir = Path("reports")
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    index_path = reports_dir / "index.md"
+
+    soda_out = reports_dir / "soda_scan_output.txt"
+    soda_sum = reports_dir / "soda_scan_summary.json"
+    issues_md = reports_dir / "data_issues.md"
+    issues_json = reports_dir / "data_issues.json"
+
+    lines = [
+        f"# Reports ({dt})",
+        "",
+        "## Data quality (Soda)",
+        f"- Output: `{soda_out}`",
+        f"- Summary: `{soda_sum}`",
+        "",
+        "## Data issues",
+        f"- Markdown: `{issues_md}`",
+        f"- JSON: `{issues_json}`",
+        "",
+    ]
+    index_path.write_text("\n".join(lines), encoding="utf-8")
+    typer.echo(f"Wrote {index_path}")
 
 
 def main() -> None:
