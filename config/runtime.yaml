@@ -23,9 +23,10 @@ quality:
   soda_on_every_run: false
 
 sample:
-  sample_enabled: false
-  # If null, sample uses the same S3 bucket but a different prefix.
-  sample_lake_bucket: null
-  # Guardrail: sample writes must never use the live prefix.
-  sample_lake_prefix: "__sample__"
+  # Default to enabled so `make run-sample` works out of the box for reviewers.
+  # Sample isolation uses a separate bucket (not a key prefix) so the on-bucket
+  # key layout stays identical to live (`raw/...`, `silver/...`, `gold/...`).
+  sample_enabled: true
+  # Required when sample_enabled=true. The CLI ensures this bucket exists.
+  sample_lake_bucket: "crypto-belief-lake-sample"
 

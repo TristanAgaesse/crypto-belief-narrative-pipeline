@@ -45,9 +45,16 @@ class RuntimeLake(BaseModel):
 
 
 class RuntimeSampleIO(BaseModel):
+    """Sample-mode I/O settings.
+
+    Sample isolation is bucket-based: all sample writes/reads go to a dedicated
+    ``sample_lake_bucket`` using the **same** key layout as live runs
+    (``raw/...``, ``silver/...``, ``gold/...``). This avoids per-key prefix
+    plumbing and matches typical environment-per-bucket conventions.
+    """
+
     sample_enabled: bool = False
     sample_lake_bucket: str | None = None
-    sample_lake_prefix: str = "__sample__"
 
 
 class RuntimeConfig(BaseModel):
