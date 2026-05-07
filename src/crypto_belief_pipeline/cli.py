@@ -1,21 +1,29 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import typer
-import subprocess
 
 from crypto_belief_pipeline.collectors.run_live_collectors import run_live_collectors
 from crypto_belief_pipeline.config import get_settings
 from crypto_belief_pipeline.dq.soda import run_soda_checks
 from crypto_belief_pipeline.features.build_gold import build_gold_tables
 from crypto_belief_pipeline.features.market_tags import DEFAULT_MARKET_TAGS_PATH
+from crypto_belief_pipeline.lake.compaction import (
+    compact_daily_from_hourly,
+    compact_hourly_microbatches,
+)
 from crypto_belief_pipeline.lake.paths import partition_path
 from crypto_belief_pipeline.lake.s3 import ensure_bucket_exists
 from crypto_belief_pipeline.quality.issues import detect_data_issues, write_data_issues_reports
-from crypto_belief_pipeline.lake.compaction import compact_daily_from_hourly, compact_hourly_microbatches
+from crypto_belief_pipeline.reports.index_md import (
+    load_issues_count_from_disk,
+    load_soda_passed_from_disk,
+    render_reports_index_md,
+)
 from crypto_belief_pipeline.transform.run_sample_pipeline import run_sample_pipeline
 
 app = typer.Typer(add_completion=False)
@@ -310,7 +318,9 @@ def compact_partitions(
     layer: str = typer.Option("silver", "--layer", help="raw|bronze|silver|gold"),
     dataset: str = typer.Option(..., "--dataset", help="Dataset name (e.g. crypto_candles_1m)"),
     dt: str = typer.Option(..., "--date", help="YYYY-MM-DD"),
-    hour: int | None = typer.Option(None, "--hour", min=0, max=23, help="Hour for hourly compaction"),
+    hour: int | None = typer.Option(
+        None, "--hour", min=0, max=23, help="Hour for hourly compaction"
+    ),
     to: str = typer.Option("hourly", "--to", help="hourly|daily|both"),
 ) -> None:
     """Compact micro-batch partitions to reduce small-file overhead."""
@@ -375,7 +385,9 @@ def cli_fast_data_issues(
         help="Path to manually curated market tags CSV.",
     ),
     write_reports: bool = typer.Option(
-        False, "--write-reports", help="Write markdown/json reports (default: no, keep hot path fast)."
+        False,
+        "--write-reports",
+        help="Write markdown/json reports (default: no, keep hot path fast).",
     ),
 ) -> None:
     """Run lightweight issue detection suitable for frequent schedules."""
@@ -397,7 +409,9 @@ def dagster_dev() -> None:
 @dagster_app.command("materialize")
 def dagster_materialize(
     select: str = typer.Option(..., "--select", help="Dagster asset selection string."),
-    partition: str | None = typer.Option(None, "--partition", help="Partition key (e.g. YYYY-MM-DD)."),
+    partition: str | None = typer.Option(
+        None, "--partition", help="Partition key (e.g. YYYY-MM-DD)."
+    ),
     module: str = typer.Option(
         "crypto_belief_pipeline.orchestration.definitions",
         "--module",
@@ -426,30 +440,22 @@ def dagster_materialize(
 def cli_generate_reports(
     dt: str = typer.Option(..., "--date", help="YYYY-MM-DD"),
 ) -> None:
-    """Generate a lightweight markdown index in reports/."""
+    """Generate `reports/index.md` (same layout as Dagster ``markdown_reports``)."""
 
     reports_dir = Path("reports")
     reports_dir.mkdir(parents=True, exist_ok=True)
     index_path = reports_dir / "index.md"
 
-    soda_out = reports_dir / "soda_scan_output.txt"
-    soda_sum = reports_dir / "soda_scan_summary.json"
-    issues_md = reports_dir / "data_issues.md"
-    issues_json = reports_dir / "data_issues.json"
+    issues_count = load_issues_count_from_disk(reports_dir / "data_issues.json")
+    soda_passed = load_soda_passed_from_disk(reports_dir / "soda_scan_summary.json")
 
-    lines = [
-        f"# Reports ({dt})",
-        "",
-        "## Data quality (Soda)",
-        f"- Output: `{soda_out}`",
-        f"- Summary: `{soda_sum}`",
-        "",
-        "## Data issues",
-        f"- Markdown: `{issues_md}`",
-        f"- JSON: `{issues_json}`",
-        "",
-    ]
-    index_path.write_text("\n".join(lines), encoding="utf-8")
+    body = render_reports_index_md(
+        dt,
+        issues_count=issues_count,
+        soda_passed=soda_passed,
+        soda_paths=None,
+    )
+    index_path.write_text(body, encoding="utf-8")
     typer.echo(f"Wrote {index_path}")
 
 

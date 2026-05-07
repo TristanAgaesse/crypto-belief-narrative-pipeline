@@ -6,6 +6,7 @@ from pathlib import Path
 import duckdb
 
 from crypto_belief_pipeline.config import get_settings
+from crypto_belief_pipeline.lake.keys import full_s3_key
 from crypto_belief_pipeline.lake.paths import partition_path
 
 
@@ -65,6 +66,21 @@ def _sql_quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+def _lake_key(relative_key: str) -> str:
+    """Apply configured `s3_prefix` to lake-relative paths.
+
+    This keeps DuckDB views aligned with `read_parquet_df` / `write_parquet_df`, which also apply
+    `s3_prefix` via `full_s3_key(...)`. It's especially important for sample runs that use an
+    isolated prefix like `__sample__`.
+    """
+
+    # Tests may patch `partition_path` to return absolute local filesystem paths. In that case,
+    # we must not rewrite the key.
+    if relative_key.startswith("/") or "://" in relative_key:
+        return relative_key
+    return full_s3_key(relative_key)
+
+
 def create_duckdb_quality_db(
     run_date: date | str,
     db_path: str | Path = "data/quality/crypto_lake.duckdb",
@@ -87,16 +103,20 @@ def create_duckdb_quality_db(
 
     tables: dict[str, str] = {
         "silver_belief_price_snapshots": (
-            f"{partition_path('silver', 'belief_price_snapshots', rd)}/data.parquet"
+            _lake_key(f"{partition_path('silver', 'belief_price_snapshots', rd)}/data.parquet")
         ),
         "silver_crypto_candles_1m": (
-            f"{partition_path('silver', 'crypto_candles_1m', rd)}/data.parquet"
+            _lake_key(f"{partition_path('silver', 'crypto_candles_1m', rd)}/data.parquet")
         ),
         "silver_narrative_counts": (
-            f"{partition_path('silver', 'narrative_counts', rd)}/data.parquet"
+            _lake_key(f"{partition_path('silver', 'narrative_counts', rd)}/data.parquet")
         ),
-        "gold_training_examples": f"{partition_path('gold', 'training_examples', rd)}/data.parquet",
-        "gold_live_signals": f"{partition_path('gold', 'live_signals', rd)}/data.parquet",
+        "gold_training_examples": _lake_key(
+            f"{partition_path('gold', 'training_examples', rd)}/data.parquet"
+        ),
+        "gold_live_signals": _lake_key(
+            f"{partition_path('gold', 'live_signals', rd)}/data.parquet"
+        ),
     }
 
     con = duckdb.connect(str(dbp))
