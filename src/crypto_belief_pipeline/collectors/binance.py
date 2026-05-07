@@ -12,6 +12,20 @@ DEFAULT_SYMBOLS = ["BTCUSDT", "ETHUSDT", "SOLUSDT"]
 _TS_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 
+class BinanceApiError(RuntimeError):
+    """Raised when Binance returns an explicit error payload (e.g. ``{code, msg}``).
+
+    Treating these as failures (not as empty data) preserves operational signal:
+    rate limits, invalid symbols, regional restrictions, and malformed requests
+    can otherwise be silently swallowed as ``no klines``.
+    """
+
+    def __init__(self, message: str, *, code: int | None = None, msg: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.msg = msg
+
+
 def _ms_to_iso_utc(ms: Any) -> str:
     return datetime.fromtimestamp(int(ms) / 1000.0, tz=UTC).strftime(_TS_FORMAT)
 
@@ -33,7 +47,10 @@ def fetch_klines(
 ) -> list[list]:
     """Fetch USD-M futures klines from Binance.
 
-    Returns the raw array-of-arrays response (each inner list is one kline).
+    Returns the raw array-of-arrays response. Raises :class:`BinanceApiError`
+    when Binance returns an explicit error payload (dict with ``code``/``msg``)
+    so failures remain visible to operators rather than being silently turned
+    into empty data.
     """
 
     params: dict[str, Any] = {"symbol": symbol, "interval": interval, "limit": limit}
@@ -44,8 +61,13 @@ def fetch_klines(
 
     payload = get_json(KLINES_URL, params=params)
     if isinstance(payload, dict):
-        # Error JSON: {"code": int, "msg": str} — treat as no klines.
-        return []
+        code = payload.get("code")
+        msg = payload.get("msg")
+        raise BinanceApiError(
+            f"Binance klines error for {symbol} {interval}: code={code} msg={msg!r}",
+            code=int(code) if isinstance(code, int) else None,
+            msg=str(msg) if msg is not None else None,
+        )
     if not isinstance(payload, list):
         raise RuntimeError(f"Unexpected Binance klines response shape: {type(payload).__name__}")
     return [k for k in payload if isinstance(k, list)]

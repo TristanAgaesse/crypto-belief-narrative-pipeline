@@ -114,10 +114,9 @@ def fetch_gamma_markets(
     payload = get_json(GAMMA_MARKETS_URL, params=params)
     if isinstance(payload, list):
         return [m for m in payload if isinstance(m, dict)]
-    if isinstance(payload, dict):
-        data = payload.get("data") or payload.get("markets") or []
-        return [m for m in data if isinstance(m, dict)]
-    return []
+    # `get_json` is typed as `dict | list`, so this branch is exhaustive.
+    data = payload.get("data") or payload.get("markets") or []
+    return [m for m in data if isinstance(m, dict)]
 
 
 def filter_markets_by_keywords(markets: list[dict], keywords: list[str]) -> list[dict]:

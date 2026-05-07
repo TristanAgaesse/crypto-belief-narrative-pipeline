@@ -72,12 +72,37 @@ def test_collect_binance_raw_iterates_symbols(monkeypatch) -> None:
     assert calls == [("BTCUSDT", "1m", 5), ("ETHUSDT", "1m", 5)]
 
 
-def test_fetch_klines_error_json_object_returns_empty(monkeypatch) -> None:
+def test_fetch_klines_error_json_payload_raises_typed_error(monkeypatch) -> None:
+    """Binance error payloads must surface as failures, not be silently swallowed."""
+
+    import pytest
+
     def fake_get_json(url: str, params: dict | None = None, timeout: float = 20.0):
         return {"code": -1121, "msg": "Invalid symbol."}
 
     monkeypatch.setattr(bn, "get_json", fake_get_json)
-    assert bn.fetch_klines(symbol="BADSYMBOL", interval="1m", limit=5) == []
+    with pytest.raises(bn.BinanceApiError) as exc_info:
+        bn.fetch_klines(symbol="BADSYMBOL", interval="1m", limit=5)
+    assert exc_info.value.code == -1121
+    assert "Invalid symbol" in (exc_info.value.msg or "")
+
+
+def test_normalize_klines_deduplicates_repeated_open_time(monkeypatch) -> None:
+    """Within a batch, duplicate (timestamp, symbol, interval) rows must collapse to one.
+
+    Binance can return overlapping windows during retries / pagination, so the
+    normalize layer is the canonical dedup point.
+    """
+
+    from crypto_belief_pipeline.transform.normalize_binance import normalize_klines
+
+    base = bn.to_raw_kline_record(_sample_kline(), symbol="BTCUSDT", interval="1m")
+    duplicate = dict(base)
+    duplicate["close"] = base["close"] + 1.0  # different close, same key
+    out = normalize_klines([base, duplicate])
+    assert out.height == 1
+    # `keep="last"` semantics: last record's close wins after sort.
+    assert out["close"][0] in {base["close"], duplicate["close"]}
 
 
 def test_collect_binance_raw_default_symbols(monkeypatch) -> None:
