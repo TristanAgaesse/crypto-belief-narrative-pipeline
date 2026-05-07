@@ -81,6 +81,8 @@ Planned sources (later steps):
 
 **Step 4**: feature engineering and labeling. Builds research-ready gold tables `training_examples` and `alpha_events` from silver inputs with strict no-lookahead semantics: features only use timestamps `<= event_time`, labels only use timestamps `> event_time`.
 
+**Step 3.5**: orchestration + monitoring + data quality. Dagster materializes partitioned assets with run metadata and schedules; Soda Core runs data-quality checks against DuckDB external views over the Parquet lake; a custom issue detector surfaces domain-specific pipeline problems (including GDELT empty days) as structured issues instead of crashes.
+
 ### Step 3 commands
 
 Smoke-test the public APIs (does not write to the lake):
@@ -137,6 +139,32 @@ make ensure-bucket
 make run-sample
 RUN_DATE=2026-05-06 make build-gold
 ```
+
+## Orchestration and Monitoring (Step 3.5)
+
+Dagster UI (asset graph, run history, partitions, logs):
+
+```bash
+make dagster-dev
+```
+
+Then open `http://localhost:3000`.
+
+Data quality (Soda Core over DuckDB external Parquet views):
+
+```bash
+RUN_DATE=2026-05-06 make dq
+```
+
+Domain-specific data issue detector (writes `reports/data_issues.md` and `reports/data_issues.json`):
+
+```bash
+RUN_DATE=2026-05-06 make detect-data-issues
+```
+
+Notes:
+- **GDELT is optional by design**: it is rate-limited and may return zero rows for sparse narratives. The pipeline should surface this as a **data issue** (high severity), not crash.
+- **Lakehouse-style DQ**: DuckDB creates **external views** over Parquet via `read_parquet(...)`. Parquet in MinIO/S3 remains the source of truth; table materialization is an opt-in debug/CI fallback.
 
 ### Gold tables
 

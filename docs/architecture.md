@@ -7,15 +7,26 @@ Positioning:
 - **MinIO**: local S3-compatible object store (Docker Compose).
 - **Lake helpers**: S3 client, bucket creation, and read/write helpers.
 - **Partitioning**: `{layer}/{dataset}/date=YYYY-MM-DD/...` where layer is one of `raw|bronze|silver|gold`.
+- **Dagster** (Step 3.5): partitioned asset graph, schedules, backfills/replays, run monitoring, and materialization metadata.
+- **DuckDB quality DB** (Step 3.5): external views over Parquet via `read_parquet(...)` for checks and ad hoc validation.
+- **Soda Core** (Step 3.5): YAML-based data-quality checks executed against DuckDB.
+- **Custom issue detector** (Step 3.5): domain-specific pipeline issues surfaced as structured `info|warning|high|critical` issues.
 - **Live collectors** (Step 3): HTTP/`gdeltdoc` clients that hit Polymarket Gamma, Binance USD-M futures, and GDELT TimelineVol, and write raw JSONL with the **same shape as Step 2 sample files**.
 - **Feature engineering** (Step 4): Polars transforms in `src/crypto_belief_pipeline/features/` for market tags, belief shocks, narrative acceleration, price reaction, forward labels, and underreaction scoring.
-- **CLI**: operational + ingest commands (`check-config`, `ensure-bucket`, `print-lake-prefix`, `run-sample`, `smoke-test-apis`, `fetch-live`, `raw-to-silver`, `run-live`, `build-gold`).
+- **CLI**: operational + ingest commands (`check-config`, `ensure-bucket`, `print-lake-prefix`, `run-sample`, `smoke-test-apis`, `fetch-live`, `raw-to-silver`, `run-live`, `build-gold`, `run-soda-checks`, `detect-data-issues`).
 
 ## Data flow
 
 ```
 live APIs ──▶ raw JSONL ──▶ bronze Parquet ──▶ silver Parquet ──▶ features ──▶ labels ──▶ gold Parquet
 sample JSONL ─┘
+```
+
+Step 3.5 adds a monitoring/quality layer:
+
+```
+Parquet lake ──▶ DuckDB external views (read_parquet) ──▶ Soda checks ──▶ reports + Dagster UI
+                                     └──────────────▶ custom data issue detector ──▶ reports
 ```
 
 The Step 2 sample files and the Step 3 live collectors emit the same raw schemas, so the same normalizers (`normalize_markets`, `normalize_price_snapshots`, `normalize_klines`, `normalize_timeline`, `to_belief_price_snapshots`, `to_crypto_candles_1m`, `to_narrative_counts`) handle both.
@@ -70,6 +81,21 @@ Bronze and silver outputs use the same keys as Step 2 (one date partition per ru
 
 ## Reuse: shared raw → silver transform
 `transform/run_raw_to_silver.py` reads the four raw JSONL keys from S3 and writes bronze + silver using the same normalizers as the sample pipeline. This is the single function the live `run-live` command uses to prove the contract.
+
+## Step 3.5 Dagster asset graph (coarse view)
+
+```mermaid
+flowchart TD
+  publicApis[PublicAPIs] --> rawAssets[DagsterRawAssets]
+  rawAssets --> bronzeAssets[DagsterBronzeAssets]
+  bronzeAssets --> silverAssets[DagsterSilverAssets]
+  silverAssets --> goldAssets[DagsterGoldAssets]
+  goldAssets --> dq[DuckDBExternalViews]
+  dq --> soda[SodaChecks]
+  goldAssets --> issues[CustomDataIssues]
+  soda --> reports[ReportsAndDagsterUI]
+  issues --> reports
+```
 
 ## Step 4 silver → gold flow
 

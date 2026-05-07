@@ -11,7 +11,8 @@
 - **Polymarket field shapes vary**: Gamma sometimes returns `outcomes` and `outcomePrices` as native lists and sometimes as JSON-encoded strings. The collector parses both, but if the API changes again you may see sparse `live_prices.jsonl` until the parser is updated. Bid/ask are not always available; we never fabricate them.
 - **Binance regional restrictions**: the public Binance futures endpoint may return `451`/`403` from some jurisdictions. If that happens the collector raises and the live pipeline fails for that source; sample data via `make run-sample` remains the deterministic evaluation path. A future fallback (CoinGecko or Coinbase) is documented but not implemented.
 - **GDELT TimelineVol semantics**: this is news-coverage intensity, not social-media volume. Sparse narratives over short windows can return zero rows; that is data, not an error.
-- **Polling, not streaming**: live collection is one-shot polling per `make run-live`. Higher-frequency collection requires a scheduler (cron, GH Actions, etc.) and is out of scope for Step 3.
+- **GDELT reliability**: GDELT is rate-limited and can return empty results for short windows. Treat it as **optional**, avoid high-frequency collection by default, and expect occasional empty partitions that should be surfaced as data issues rather than crashing the pipeline.
+- **Polling, not streaming**: live collection is one-shot polling per `make run-live`. Higher-frequency collection requires a scheduler (Dagster schedules, cron, GH Actions, etc.).
 - **Gamma pagination**: Step 3 fetches a single page (`limit` markets) for simplicity. If you need broader coverage, paginate in a later step.
 
 ## Step 4 feature/labeling caveats
