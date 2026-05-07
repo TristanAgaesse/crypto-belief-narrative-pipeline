@@ -58,6 +58,20 @@ def _format_ts(dt: datetime) -> str:
     return dt.strftime(_TS_FORMAT)
 
 
+def _parse_ts(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text:
+        return None
+    try:
+        if text.endswith("Z"):
+            return datetime.fromisoformat(text.replace("Z", "+00:00")).astimezone(UTC)
+        return datetime.fromisoformat(text).astimezone(UTC)
+    except ValueError:
+        return None
+
+
 def _tag_labels(market: dict) -> list[str]:
     tags = market.get("tags") or []
     if isinstance(tags, str):
@@ -76,6 +90,9 @@ def _tag_labels(market: dict) -> list[str]:
 
 def fetch_gamma_markets(
     limit: int = 100,
+    offset: int = 0,
+    order: str | None = None,
+    ascending: bool | None = None,
     active: bool = True,
     closed: bool = False,
 ) -> list[dict]:
@@ -86,9 +103,14 @@ def fetch_gamma_markets(
 
     params: dict[str, Any] = {
         "limit": limit,
+        "offset": offset,
         "active": str(active).lower(),
         "closed": str(closed).lower(),
     }
+    if order:
+        params["order"] = order
+    if ascending is not None:
+        params["ascending"] = str(bool(ascending)).lower()
     payload = get_json(GAMMA_MARKETS_URL, params=params)
     if isinstance(payload, list):
         return [m for m in payload if isinstance(m, dict)]
@@ -278,14 +300,86 @@ def extract_price_snapshots(
 def collect_polymarket_raw(
     limit: int = 100,
     keywords: list[str] | None = None,
+    *,
+    start_time: datetime,
+    end_time: datetime,
     snapshot_time: datetime | None = None,
     active: bool = True,
     closed: bool = False,
-) -> tuple[list[dict], list[dict]]:
-    """Fetch -> filter -> map to (markets_records, prices_records)."""
+) -> tuple[list[dict], list[dict], dict[str, Any]]:
+    """Fetch -> filter -> map to (markets_records, prices_records, metadata).
 
-    raw_markets = fetch_gamma_markets(limit=limit, active=active, closed=closed)
+    Incremental behavior: include only markets whose `updatedAt` is within `[start_time, end_time)`
+    when `updatedAt` is present.
+    """
+
+    # Paged discovery (deterministic ordering when supported).
+    page_limit = int(limit)
+    max_pages = 10
+    raw_markets: list[dict] = []
+    offset = 0
+    st = start_time.astimezone(UTC)
+    et = end_time.astimezone(UTC)
+    for _ in range(max_pages):
+        page = fetch_gamma_markets(
+            limit=page_limit,
+            offset=offset,
+            order="updatedAt",
+            ascending=False,
+            active=active,
+            closed=closed,
+        )
+        if not page:
+            break
+
+        # If the API honors ordering, we can stop once pages are older than the window start.
+        parsed_page_times = [
+            _parse_ts(m.get("updatedAt") or m.get("updated_at"))
+            for m in page
+            if isinstance(m, dict)
+        ]
+        oldest = min((t for t in parsed_page_times if t is not None), default=None)
+        raw_markets.extend(page)
+        if oldest is not None and oldest < st:
+            break
+        if len(page) < page_limit:
+            break
+        offset += page_limit
+
     filtered = filter_markets_by_keywords(raw_markets, keywords or [])
-    market_records = [to_raw_market_record(m) for m in filtered]
-    price_records = extract_price_snapshots(filtered, snapshot_time=snapshot_time)
-    return market_records, price_records
+
+    windowed: list[dict] = []
+    missing_updated_at = 0
+    for m in filtered:
+        updated_at_raw = m.get("updatedAt") or m.get("updated_at")
+        updated_at = _parse_ts(updated_at_raw)
+        if updated_at is None:
+            missing_updated_at += 1
+            continue
+        if st <= updated_at < et:
+            windowed.append(m)
+
+    market_records = [to_raw_market_record(m) for m in windowed]
+    price_records = extract_price_snapshots(windowed, snapshot_time=snapshot_time)
+
+    updated_ats = [
+        _format_ts(ts)
+        for ts in (_parse_ts(m.get("updatedAt") or m.get("updated_at")) for m in windowed)
+        if ts is not None
+    ]
+
+    meta: dict[str, Any] = {
+        "source": "polymarket",
+        "start_time": _format_ts(st),
+        "end_time": _format_ts(et),
+        "load_timestamp": _format_ts(datetime.now(UTC).replace(microsecond=0)),
+        "fetched_markets": len(raw_markets),
+        "keyword_filtered_markets": len(filtered),
+        "window_qualified_markets": len(windowed),
+        "missing_updatedAt_count": missing_updated_at,
+        "records_markets": len(market_records),
+        "records_prices": len(price_records),
+        "min_event_time": min(updated_ats) if updated_ats else None,
+        "max_event_time": max(updated_ats) if updated_ats else None,
+    }
+    return market_records, price_records, meta

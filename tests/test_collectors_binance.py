@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from crypto_belief_pipeline.collectors import binance as bn
 
 
@@ -57,7 +59,14 @@ def test_collect_binance_raw_iterates_symbols(monkeypatch) -> None:
 
     monkeypatch.setattr(bn, "fetch_klines", fake_fetch)
 
-    out = bn.collect_binance_raw(symbols=["BTCUSDT", "ETHUSDT"], interval="1m", limit=5)
+    out, meta = bn.collect_binance_raw(
+        symbols=["BTCUSDT", "ETHUSDT"],
+        interval="1m",
+        limit=5,
+        start_time=datetime(2026, 5, 6, 10, 0, tzinfo=UTC),
+        end_time=datetime(2026, 5, 6, 10, 5, tzinfo=UTC),
+    )
+    assert meta["source"] == "binance"
     assert len(out) == 2
     assert {r["symbol"] for r in out} == {"BTCUSDT", "ETHUSDT"}
     assert calls == [("BTCUSDT", "1m", 5), ("ETHUSDT", "1m", 5)]
@@ -79,5 +88,8 @@ def test_collect_binance_raw_default_symbols(monkeypatch) -> None:
         return [_sample_kline()]
 
     monkeypatch.setattr(bn, "fetch_klines", fake_fetch)
-    bn.collect_binance_raw()
+    bn.collect_binance_raw(
+        start_time=datetime(2026, 5, 6, 10, 0, tzinfo=UTC),
+        end_time=datetime(2026, 5, 6, 10, 5, tzinfo=UTC),
+    )
     assert seen == bn.DEFAULT_SYMBOLS

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import crypto_belief_pipeline.collectors.run_live_collectors as rlc
 
 
@@ -9,11 +11,17 @@ def test_run_live_collectors_writes_expected_keys(monkeypatch) -> None:
     def fake_write_jsonl_records(records, key, bucket=None):  # noqa: ANN001
         written.append((key, len(records)))
 
-    def fake_polymarket(limit, keywords=None, snapshot_time=None, active=True, closed=False):  # noqa: ANN001
-        return ([{"market_id": "m1"}], [{"market_id": "m1", "outcome": "Yes"}])
+    def fake_polymarket(*, start_time, end_time, **_kw):  # noqa: ANN001
+        assert isinstance(start_time, datetime) and isinstance(end_time, datetime)
+        return (
+            [{"market_id": "m1", "raw": {"updatedAt": "2026-05-06T00:00:00Z"}}],
+            [{"market_id": "m1", "outcome": "Yes"}],
+            {"source": "polymarket", "start_time": "x", "end_time": "y"},
+        )
 
-    def fake_binance(symbols=None, interval="1m", limit=120):  # noqa: ANN001
-        return [{"symbol": "BTCUSDT"}]
+    def fake_binance(*, start_time, end_time, **_kw):  # noqa: ANN001
+        assert isinstance(start_time, datetime) and isinstance(end_time, datetime)
+        return ([{"symbol": "BTCUSDT", "open_time": "2026-05-06T00:00:00Z"}], {"source": "binance"})
 
     def fake_gdelt(  # noqa: ANN001
         start_date, end_date, narratives_config_path="config/narratives.yaml", **kwargs
@@ -52,9 +60,9 @@ def test_run_live_collectors_skips_disabled_sources(monkeypatch) -> None:
     monkeypatch.setattr(
         rlc,
         "collect_polymarket_raw",
-        lambda **_kw: ([], []),
+        lambda **_kw: ([], [], {}),
     )
-    monkeypatch.setattr(rlc, "collect_binance_raw", lambda **_kw: [])
+    monkeypatch.setattr(rlc, "collect_binance_raw", lambda **_kw: ([], {}))
     monkeypatch.setattr(rlc, "collect_gdelt_raw", lambda **_kw: [])
 
     out = rlc.run_live_collectors(

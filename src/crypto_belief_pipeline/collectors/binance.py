@@ -16,6 +16,14 @@ def _ms_to_iso_utc(ms: Any) -> str:
     return datetime.fromtimestamp(int(ms) / 1000.0, tz=UTC).strftime(_TS_FORMAT)
 
 
+def _dt_to_ms(dt: datetime) -> int:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    else:
+        dt = dt.astimezone(UTC)
+    return int(dt.timestamp() * 1000)
+
+
 def fetch_klines(
     symbol: str,
     interval: str = "1m",
@@ -80,17 +88,43 @@ def to_raw_kline_record(kline: list, symbol: str, interval: str) -> dict:
 def collect_binance_raw(
     symbols: list[str] | None = None,
     interval: str = "1m",
-    limit: int = 120,
-) -> list[dict]:
-    """Collect klines for the given symbols and return raw records."""
+    *,
+    start_time: datetime,
+    end_time: datetime,
+    limit: int = 1000,
+) -> tuple[list[dict], dict[str, Any]]:
+    """Collect klines for the given symbols within `[start_time, end_time)` (UTC).
+
+    Returns (records, metadata).
+    """
 
     syms = list(symbols) if symbols else list(DEFAULT_SYMBOLS)
     out: list[dict] = []
+    start_ms = _dt_to_ms(start_time)
+    end_ms = _dt_to_ms(end_time)
     for symbol in syms:
-        klines = fetch_klines(symbol=symbol, interval=interval, limit=limit)
+        klines = fetch_klines(
+            symbol=symbol,
+            interval=interval,
+            limit=limit,
+            start_time_ms=start_ms,
+            end_time_ms=end_ms,
+        )
         for k in klines:
             try:
                 out.append(to_raw_kline_record(k, symbol=symbol, interval=interval))
             except (ValueError, TypeError):
                 continue
-    return out
+
+    # Best-effort min/max event time (open_time)
+    open_times: list[str] = [r["open_time"] for r in out if isinstance(r.get("open_time"), str)]
+    meta: dict[str, Any] = {
+        "source": "binance",
+        "start_time": start_time.astimezone(UTC).strftime(_TS_FORMAT),
+        "end_time": end_time.astimezone(UTC).strftime(_TS_FORMAT),
+        "load_timestamp": datetime.now(UTC).replace(microsecond=0).strftime(_TS_FORMAT),
+        "records": len(out),
+        "min_event_time": min(open_times) if open_times else None,
+        "max_event_time": max(open_times) if open_times else None,
+    }
+    return out, meta

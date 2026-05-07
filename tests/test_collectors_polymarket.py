@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from crypto_belief_pipeline.collectors import polymarket as pm
 
 
 def test_filter_markets_by_keywords_matches_question_slug_tags_case_insensitively() -> None:
-    markets = [
+    markets: list[dict] = [
         {"question": "Will Bitcoin hit $100k?", "slug": "btc-100k", "tags": []},
         {
             "question": "Will Apple ship a foldable?",
@@ -28,7 +28,7 @@ def test_filter_markets_by_keywords_matches_question_slug_tags_case_insensitivel
 
 
 def test_filter_markets_by_keywords_empty_keywords_returns_all() -> None:
-    markets = [{"question": "anything", "slug": "x"}]
+    markets: list[dict] = [{"question": "anything", "slug": "x"}]
     assert pm.filter_markets_by_keywords(markets, []) == markets
 
 
@@ -137,7 +137,7 @@ def test_extract_price_snapshots_tokens_shape_includes_bid_ask() -> None:
 
 
 def test_extract_price_snapshots_skips_markets_with_no_price() -> None:
-    markets = [
+    markets: list[dict] = [
         {"id": "m3", "outcomes": ["Yes"], "outcomePrices": []},
         {"id": "m4"},
     ]
@@ -146,12 +146,14 @@ def test_extract_price_snapshots_skips_markets_with_no_price() -> None:
 
 
 def test_collect_polymarket_raw_filters_and_maps(monkeypatch) -> None:
-    def fake_fetch(limit: int, active: bool, closed: bool) -> list[dict]:
+    def fake_fetch(limit: int, offset: int = 0, order=None, ascending=None, active: bool = True, closed: bool = False) -> list[dict]:
+        # Return newest first when ordered by updatedAt descending.
         return [
             {
                 "id": "x",
                 "question": "Will Bitcoin moon?",
                 "slug": "btc-moon",
+                "updatedAt": "2026-05-06T12:00:30Z",
                 "outcomes": ["Yes", "No"],
                 "outcomePrices": [0.7, 0.3],
                 "liquidity": 10.0,
@@ -163,11 +165,50 @@ def test_collect_polymarket_raw_filters_and_maps(monkeypatch) -> None:
                 "id": "y",
                 "question": "Will Apple ship a foldable?",
                 "slug": "apple-fold",
+                "updatedAt": "2026-05-06T11:00:30Z",
             },
         ]
 
     monkeypatch.setattr(pm, "fetch_gamma_markets", fake_fetch)
-    markets, prices = pm.collect_polymarket_raw(limit=5, keywords=["bitcoin"])
+    start = datetime(2026, 5, 6, 12, 0, tzinfo=UTC)
+    end = start + timedelta(minutes=5)
+    markets, prices, meta = pm.collect_polymarket_raw(limit=5, keywords=["bitcoin"], start_time=start, end_time=end)
+    assert meta["source"] == "polymarket"
     assert len(markets) == 1
     assert markets[0]["market_id"] == "x"
     assert {r["outcome"] for r in prices} == {"Yes", "No"}
+
+
+def test_collect_polymarket_raw_stops_paging_when_pages_older_than_window(monkeypatch) -> None:
+    calls: list[int] = []
+
+    def fake_fetch(
+        limit: int,
+        offset: int = 0,
+        order=None,
+        ascending=None,
+        active: bool = True,
+        closed: bool = False,
+    ) -> list[dict]:
+        calls.append(offset)
+        # First page includes one market in-window and one market older than start_time.
+        if offset == 0:
+            return [
+                {"id": "in", "question": "Bitcoin?", "slug": "in", "updatedAt": "2026-05-06T12:04:00Z"},
+                {"id": "old", "question": "Bitcoin?", "slug": "old", "updatedAt": "2026-05-06T11:00:00Z"},
+            ]
+        # If paging didn't stop, we'd see this second page; we want to avoid it.
+        return [
+            {"id": "older", "question": "Bitcoin?", "slug": "older", "updatedAt": "2026-05-06T10:00:00Z"}
+        ]
+
+    monkeypatch.setattr(pm, "fetch_gamma_markets", fake_fetch)
+    start = datetime(2026, 5, 6, 12, 0, tzinfo=UTC)
+    end = start + timedelta(minutes=5)
+    markets, _prices, meta = pm.collect_polymarket_raw(
+        limit=2, keywords=["bitcoin"], start_time=start, end_time=end
+    )
+
+    assert [m["market_id"] for m in markets] == ["in"]
+    assert meta["window_qualified_markets"] == 1
+    assert calls == [0]

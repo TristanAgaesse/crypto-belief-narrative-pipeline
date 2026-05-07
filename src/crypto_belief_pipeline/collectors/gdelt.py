@@ -392,3 +392,41 @@ def collect_gdelt_raw(
             rows = []
         out.extend(rows)
     return out
+
+
+def collect_gdelt_raw_window(
+    *,
+    start_time: datetime,
+    end_time: datetime,
+    narratives_config_path: str | Path = "config/narratives.yaml",
+    min_interval_sec: float = 5.5,
+    max_attempts: int = 8,
+    timeout: float = 60.0,
+) -> tuple[list[dict], dict[str, Any]]:
+    """Windowed wrapper around `collect_gdelt_raw` using UTC dates.
+
+    GDELT TimelineVol is effectively date-granular in this pipeline; we convert datetimes to dates.
+    Returns (records, metadata).
+    """
+
+    st = start_time.astimezone(UTC)
+    et = end_time.astimezone(UTC)
+    rows = collect_gdelt_raw(
+        start_date=st.date().isoformat(),
+        end_date=et.date().isoformat(),
+        narratives_config_path=narratives_config_path,
+        min_interval_sec=min_interval_sec,
+        max_attempts=max_attempts,
+        timeout=timeout,
+    )
+    ts = [r["timestamp"] for r in rows if isinstance(r.get("timestamp"), str)]
+    meta: dict[str, Any] = {
+        "source": "gdelt",
+        "start_time": st.strftime(_TS_FORMAT),
+        "end_time": et.strftime(_TS_FORMAT),
+        "load_timestamp": datetime.now(UTC).replace(microsecond=0).strftime(_TS_FORMAT),
+        "records": len(rows),
+        "min_event_time": min(ts) if ts else None,
+        "max_event_time": max(ts) if ts else None,
+    }
+    return rows, meta

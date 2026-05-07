@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +61,10 @@ def run_live_collectors(
     """
 
     rd = _to_date(run_date)
+    # Temporary windowing: use the full UTC day for this run_date.
+    # Dagster will become the single window owner in the next step.
+    start_time = datetime(rd.year, rd.month, rd.day, tzinfo=UTC)
+    end_time = start_time + timedelta(days=1)
 
     written: dict[str, str] = {}
 
@@ -73,9 +77,11 @@ def run_live_collectors(
         keywords = cfg.get("keywords") or []
         active = bool(cfg.get("active", True))
         closed = bool(cfg.get("closed", False))
-        markets, prices = collect_polymarket_raw(
+        markets, prices, _pm_meta = collect_polymarket_raw(
             limit=polymarket_limit,
             keywords=keywords,
+            start_time=start_time,
+            end_time=end_time,
             active=active,
             closed=closed,
         )
@@ -87,7 +93,11 @@ def run_live_collectors(
         written["raw_polymarket_prices"] = prices_key
 
     if collect_binance:
-        klines = collect_binance_raw(limit=binance_limit)
+        klines, _bn_meta = collect_binance_raw(
+            limit=binance_limit,
+            start_time=start_time,
+            end_time=end_time,
+        )
         klines_key = _k(raw_bn_prefix, "live_klines.jsonl")
         write_jsonl_records(klines, klines_key)
         written["raw_binance_klines"] = klines_key
