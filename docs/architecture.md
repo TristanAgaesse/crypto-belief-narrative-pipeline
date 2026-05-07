@@ -1,4 +1,4 @@
-# Architecture (Step 3)
+# Architecture (Step 4)
 
 Positioning:
 `MinIO/S3-compatible lake + partitioned Parquet + Polars-first processing + DuckDB for ad hoc analytical queries`.
@@ -8,12 +8,13 @@ Positioning:
 - **Lake helpers**: S3 client, bucket creation, and read/write helpers.
 - **Partitioning**: `{layer}/{dataset}/date=YYYY-MM-DD/...` where layer is one of `raw|bronze|silver|gold`.
 - **Live collectors** (Step 3): HTTP/`gdeltdoc` clients that hit Polymarket Gamma, Binance USD-M futures, and GDELT TimelineVol, and write raw JSONL with the **same shape as Step 2 sample files**.
-- **CLI**: operational + ingest commands (`check-config`, `ensure-bucket`, `print-lake-prefix`, `run-sample`, `smoke-test-apis`, `fetch-live`, `raw-to-silver`, `run-live`).
+- **Feature engineering** (Step 4): Polars transforms in `src/crypto_belief_pipeline/features/` for market tags, belief shocks, narrative acceleration, price reaction, forward labels, and underreaction scoring.
+- **CLI**: operational + ingest commands (`check-config`, `ensure-bucket`, `print-lake-prefix`, `run-sample`, `smoke-test-apis`, `fetch-live`, `raw-to-silver`, `run-live`, `build-gold`).
 
 ## Data flow
 
 ```
-live APIs ──▶ raw JSONL ──▶ bronze Parquet ──▶ silver Parquet
+live APIs ──▶ raw JSONL ──▶ bronze Parquet ──▶ silver Parquet ──▶ features ──▶ labels ──▶ gold Parquet
 sample JSONL ─┘
 ```
 
@@ -69,3 +70,23 @@ Bronze and silver outputs use the same keys as Step 2 (one date partition per ru
 
 ## Reuse: shared raw → silver transform
 `transform/run_raw_to_silver.py` reads the four raw JSONL keys from S3 and writes bronze + silver using the same normalizers as the sample pipeline. This is the single function the live `run-live` command uses to prove the contract.
+
+## Step 4 silver → gold flow
+
+`features/build_gold.py::build_gold_tables` reads three silver tables, joins them, applies labels and scoring, and writes:
+
+```
+silver/belief_price_snapshots ──▶ features/belief.py ──┐
+silver/narrative_counts       ──▶ features/narrative.py├──▶ join ──▶ features/labels.py ──▶ features/scoring.py ──▶ gold
+silver/crypto_candles_1m      ──▶ features/prices.py  ──┘
+```
+
+Step 4 gold keys:
+- `gold/training_examples/date=YYYY-MM-DD/data.parquet` (full joined frame, includes `is_candidate_event`)
+- `gold/alpha_events/date=YYYY-MM-DD/data.parquet` (rows where `is_candidate_event == true`)
+
+Joins:
+- Belief features `LEFT JOIN` narrative features on `(event_time, narrative)`
+- Result `LEFT JOIN` price features on `(event_time, asset)`
+
+Manual market interpretation lives in `data/sample/market_tags.csv`. Markets without a tag row are excluded from gold features (see `features/market_tags.py`).

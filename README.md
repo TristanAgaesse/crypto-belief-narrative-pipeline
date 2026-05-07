@@ -79,6 +79,8 @@ Planned sources (later steps):
 
 **Step 3**: live collectors for Polymarket Gamma, Binance USD-M klines, and GDELT TimelineVol. Live collectors write the **same raw JSONL contracts** as the Step 2 sample files, so the existing normalizers handle both unchanged.
 
+**Step 4**: feature engineering and labeling. Builds research-ready gold tables `training_examples` and `alpha_events` from silver inputs with strict no-lookahead semantics: features only use timestamps `<= event_time`, labels only use timestamps `> event_time`.
+
 ### Step 3 commands
 
 Smoke-test the public APIs (does not write to the lake):
@@ -112,7 +114,47 @@ raw/provider=binance/date=YYYY-MM-DD/live_klines.jsonl
 raw/provider=gdelt/date=YYYY-MM-DD/live_timeline.jsonl
 ```
 
-Next steps add features, labels, and event-study/research outputs.
+### Step 4 commands
+
+Build gold tables from silver:
+
+```bash
+RUN_DATE=2026-05-06 make build-gold
+```
+
+This writes:
+
+```
+gold/training_examples/date=YYYY-MM-DD/data.parquet
+gold/alpha_events/date=YYYY-MM-DD/data.parquet
+```
+
+End-to-end sample run:
+
+```bash
+make minio-up
+make ensure-bucket
+make run-sample
+RUN_DATE=2026-05-06 make build-gold
+```
+
+### Gold tables
+
+- **`training_examples`**: model/research-ready joined frame keyed by `(event_time, market_id, asset, narrative)` with belief shocks, narrative acceleration, past price reactions, forward returns at 1h/4h/24h, directional labels, the underreaction score, and a candidate flag. Use this for any modelling/backtesting research.
+- **`alpha_events`**: filtered subset where `is_candidate_event` is true (`belief_shock_abs_1h >= 0.08`, positive underreaction score, confidence `>= 0.6`, relevance medium or high). Use this for event studies and signal exploration.
+
+For definitions, interpretation, and expected ranges, see [`docs/gold_features.md`](docs/gold_features.md).
+
+### No-lookahead principle
+
+Step 4 enforces a strict separation:
+
+- Feature inputs (belief, narrative, past price reaction) only use timestamps **`<= event_time`**.
+- Labels (forward returns at 1h/4h/24h) only use timestamps **`> event_time`**.
+
+Tests in `tests/test_forward_labels_no_lookahead.py` and `tests/test_narrative_features.py` enforce this invariant.
+
+Next steps add quality reports, event-study summaries, and dashboards.
 
 ## Important disclaimer
 This repository **does not claim** a profitable trading strategy. It’s a framework for testing hypotheses with better data hygiene and faster iteration.
