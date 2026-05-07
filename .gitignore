@@ -216,3 +216,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Pipeline outputs
+reports/
+
+# Soda local state
+.soda/
+
+# DuckDB quality DB and local DuckDB home cache
+data/quality/*.duckdb
+data/quality/.duckdb_home/
+
+# Dagster ephemeral home (created by CLI materialize runs)
+.tmp_dagster_home_*/

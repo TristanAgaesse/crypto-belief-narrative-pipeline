@@ -54,7 +54,10 @@ def _read_yaml_mapping(path: str | Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-@asset(partitions_def=partitions_def)
+@asset(
+    partitions_def=partitions_def,
+    description="Write deterministic sample raw JSONL inputs into the lake (raw/).",
+)
 def raw_sample_inputs(context) -> dict[str, str]:
     """Write sample JSONL into the lake under raw/ (partitioned by run_date)."""
 
@@ -88,7 +91,12 @@ def raw_sample_inputs(context) -> dict[str, str]:
     return written
 
 
-@asset(partitions_def=partitions_def)
+@asset(
+    partitions_def=partitions_def,
+    description=(
+        "Collect Polymarket live markets + prices into raw JSONL (raw/provider=polymarket)."
+    ),
+)
 def raw_polymarket(context) -> dict[str, str]:
     """Collect Polymarket markets + prices and write raw JSONL to the lake."""
 
@@ -123,7 +131,10 @@ def raw_polymarket(context) -> dict[str, str]:
     return written
 
 
-@asset(partitions_def=partitions_def)
+@asset(
+    partitions_def=partitions_def,
+    description="Collect Binance live klines into raw JSONL (raw/provider=binance).",
+)
 def raw_binance(context) -> dict[str, str]:
     """Collect recent Binance klines and write raw JSONL to the lake."""
 
@@ -144,7 +155,13 @@ def raw_binance(context) -> dict[str, str]:
     return written
 
 
-@asset(partitions_def=partitions_def)
+@asset(
+    partitions_def=partitions_def,
+    description=(
+        "Collect GDELT TimelineVol into raw JSONL (raw/provider=gdelt). "
+        "Optional/unreliable; may be empty."
+    ),
+)
 def raw_gdelt(context) -> dict[str, str]:
     """Collect GDELT TimelineVol (optional; may produce zero rows without failing)."""
 
@@ -177,7 +194,10 @@ def _safe_read_jsonl(key: str) -> list[dict]:
         return []
 
 
-@asset(partitions_def=partitions_def)
+@asset(
+    partitions_def=partitions_def,
+    description="Normalize Polymarket raw JSONL into bronze Parquet (typed, source-shaped).",
+)
 def bronze_polymarket(context) -> dict[str, str]:
     run_date = resolve_run_date(context.partition_key)
     raw_pm = partition_path("raw", "provider=polymarket", run_date)
@@ -229,7 +249,10 @@ def bronze_polymarket(context) -> dict[str, str]:
     return written
 
 
-@asset(partitions_def=partitions_def)
+@asset(
+    partitions_def=partitions_def,
+    description="Normalize Binance raw JSONL into bronze Parquet (typed, source-shaped).",
+)
 def bronze_binance(context) -> dict[str, str]:
     run_date = resolve_run_date(context.partition_key)
     raw_bn = partition_path("raw", "provider=binance", run_date)
@@ -254,7 +277,10 @@ def bronze_binance(context) -> dict[str, str]:
     return written
 
 
-@asset(partitions_def=partitions_def)
+@asset(
+    partitions_def=partitions_def,
+    description="Normalize GDELT raw JSONL into bronze Parquet (typed, source-shaped).",
+)
 def bronze_gdelt(context) -> dict[str, str]:
     run_date = resolve_run_date(context.partition_key)
     raw_gd = partition_path("raw", "provider=gdelt", run_date)
@@ -279,7 +305,11 @@ def bronze_gdelt(context) -> dict[str, str]:
     return written
 
 
-@asset(partitions_def=partitions_def, deps=[bronze_polymarket])
+@asset(
+    partitions_def=partitions_def,
+    deps=[bronze_polymarket],
+    description="Build silver belief_price_snapshots from bronze Polymarket prices.",
+)
 def silver_belief_price_snapshots(context, bronze_polymarket: dict[str, str]) -> dict[str, str]:
     run_date = resolve_run_date(context.partition_key)
     prices_df = read_parquet_df(bronze_polymarket["bronze_polymarket_prices"])
@@ -300,7 +330,11 @@ def silver_belief_price_snapshots(context, bronze_polymarket: dict[str, str]) ->
     return written
 
 
-@asset(partitions_def=partitions_def, deps=[bronze_binance])
+@asset(
+    partitions_def=partitions_def,
+    deps=[bronze_binance],
+    description="Build silver crypto_candles_1m from bronze Binance klines.",
+)
 def silver_crypto_candles_1m(context, bronze_binance: dict[str, str]) -> dict[str, str]:
     run_date = resolve_run_date(context.partition_key)
     klines_df = read_parquet_df(bronze_binance["bronze_binance_klines"])
@@ -321,7 +355,11 @@ def silver_crypto_candles_1m(context, bronze_binance: dict[str, str]) -> dict[st
     return written
 
 
-@asset(partitions_def=partitions_def, deps=[bronze_gdelt])
+@asset(
+    partitions_def=partitions_def,
+    deps=[bronze_gdelt],
+    description="Build silver narrative_counts from bronze GDELT timeline series (may be empty).",
+)
 def silver_narrative_counts(context, bronze_gdelt: dict[str, str]) -> dict[str, str]:
     run_date = resolve_run_date(context.partition_key)
     timeline_df = read_parquet_df(bronze_gdelt["bronze_gdelt_timeline"])
@@ -346,6 +384,7 @@ def silver_narrative_counts(context, bronze_gdelt: dict[str, str]) -> dict[str, 
     partitions_def=partitions_def,
     deps=[silver_belief_price_snapshots, silver_crypto_candles_1m, silver_narrative_counts],
     outs={"gold_training_examples": AssetOut(), "gold_alpha_events": AssetOut()},
+    description="Build gold tables (training_examples + alpha_events) from silver inputs.",
 )
 def gold_tables(context) -> tuple[Output[dict[str, str]], Output[dict[str, str]]]:
     """Build gold tables once and expose both outputs as distinct assets."""
@@ -375,6 +414,7 @@ def gold_tables(context) -> tuple[Output[dict[str, str]], Output[dict[str, str]]
         AssetDep(AssetKey("gold_training_examples")),
         AssetDep(AssetKey("gold_alpha_events")),
     ],
+    description="Run Soda Core checks against DuckDB external Parquet views for this partition.",
 )
 def soda_data_quality(context) -> dict[str, Any]:
     run_date = resolve_run_date(context.partition_key)
@@ -397,6 +437,7 @@ def soda_data_quality(context) -> dict[str, Any]:
         AssetDep(AssetKey("gold_training_examples")),
         AssetDep(AssetKey("gold_alpha_events")),
     ],
+    description="Detect domain-specific pipeline/data issues and write markdown/json reports.",
 )
 def data_issues(context) -> list[dict]:
     run_date = resolve_run_date(context.partition_key)
@@ -412,7 +453,11 @@ def data_issues(context) -> list[dict]:
     return issues
 
 
-@asset(partitions_def=partitions_def, deps=[data_issues, soda_data_quality])
+@asset(
+    partitions_def=partitions_def,
+    deps=[data_issues, soda_data_quality],
+    description="Write a lightweight markdown index that links to Soda + data-issues reports.",
+)
 def markdown_reports(
     context, data_issues: list[dict], soda_data_quality: dict[str, Any]
 ) -> dict[str, str]:
