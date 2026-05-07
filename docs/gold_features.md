@@ -3,14 +3,14 @@
 This document explains how to interpret the Step 4 gold tables:
 
 - `gold/training_examples/date=YYYY-MM-DD/data.parquet`
-- `gold/alpha_events/date=YYYY-MM-DD/data.parquet`
+- `gold/live_signals/date=YYYY-MM-DD/data.parquet`
 
 These tables are built by `src/crypto_belief_pipeline/features/build_gold.py`.
 
 ## What each gold table is for
 
 - **`training_examples`**: the full joined dataset for modelling and research. One row per `(event_time, market_id, asset, narrative)` after joining belief, narrative, and price features. This table includes labels, scoring, and `is_candidate_event`.
-- **`alpha_events`**: a filtered subset of `training_examples` where `is_candidate_event == true`. This is a convenient “event list” for event studies and manual inspection.
+- **`live_signals`**: a filtered subset of `training_examples` where `is_candidate_event == true`. This is the live, low-latency signal output for monitoring and manual inspection.
 
 ## No-lookahead rule (most important)
 

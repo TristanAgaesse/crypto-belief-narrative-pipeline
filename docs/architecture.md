@@ -67,22 +67,19 @@ Silver:
 - `silver/crypto_candles_1m/date=YYYY-MM-DD/data.parquet`
 - `silver/narrative_counts/date=YYYY-MM-DD/data.parquet`
 
-## Step 3 live keys
-Raw (same schemas as the sample raw JSONL above):
-- `raw/provider=polymarket/date=YYYY-MM-DD/live_markets.jsonl`
-- `raw/provider=polymarket/date=YYYY-MM-DD/live_prices.jsonl`
-- `raw/provider=binance/date=YYYY-MM-DD/live_klines.jsonl`
-- `raw/provider=gdelt/date=YYYY-MM-DD/live_timeline.jsonl`
+## Step 3 live keys (micro-batch)
+Raw (append-only micro-batches):
+- `raw/provider=polymarket/date=YYYY-MM-DD/hour=HH/batch_id=..._markets.jsonl`
+- `raw/provider=polymarket/date=YYYY-MM-DD/hour=HH/batch_id=..._prices.jsonl`
+- `raw/provider=binance/date=YYYY-MM-DD/hour=HH/batch_id=....jsonl`
+- `raw/provider=gdelt/date=YYYY-MM-DD/hour=HH/batch_id=....jsonl`
 
 Bronze and silver outputs use the same keys as Step 2 (one date partition per run).
 
 ## Live collectors
 - **Polymarket Gamma** (`https://gamma-api.polymarket.com/markets`): discovers markets and extracts current outcome prices defensively (handles `outcomes`/`outcomePrices` as native lists or JSON strings, and the `tokens` shape). Markets are filtered using `config/markets_keywords.yaml` against `question`, `slug`, `category`, tag labels, and `description`.
-- **Binance USD-M** (`https://fapi.binance.com/fapi/v1/klines`): pulls the most recent 1-minute klines for `BTCUSDT`, `ETHUSDT`, `SOLUSDT` and converts the array shape to the Step 2 raw kline schema.
-- **GDELT** (`gdeltdoc.GdeltDoc`): pulls TimelineVol series for each narrative in `config/narratives.yaml`. Defaults to the previous full UTC day to avoid partial-day weirdness.
-
-## Reuse: shared raw → silver transform
-`transform/run_raw_to_silver.py` reads any available raw JSONL keys from S3 (Polymarket/Binance/GDELT) and writes bronze + silver using the same normalizers as the sample pipeline. The live `run-live` command uses this to prove the contract without requiring every source to be present.
+- **Binance USD-M** (`https://fapi.binance.com/fapi/v1/klines`): pulls klines within an orchestrator-defined `[start_time, end_time)` window and converts the array shape to the Step 2 raw kline schema.
+- **GDELT** (`gdeltdoc.GdeltDoc`): pulls TimelineVol series within an orchestrator-defined window; it is intentionally kept off the fast path.
 
 ## Step 3.5 Dagster asset graph (coarse view)
 
@@ -111,7 +108,7 @@ silver/crypto_candles_1m      ──▶ features/prices.py  ──┘
 
 Step 4 gold keys:
 - `gold/training_examples/date=YYYY-MM-DD/data.parquet` (full joined frame, includes `is_candidate_event`)
-- `gold/alpha_events/date=YYYY-MM-DD/data.parquet` (rows where `is_candidate_event == true`)
+- `gold/live_signals/date=YYYY-MM-DD/data.parquet` (rows where `is_candidate_event == true`)
 
 Joins:
 - Belief features `LEFT JOIN` narrative features on `(event_time, narrative)`

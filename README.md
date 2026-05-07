@@ -97,7 +97,7 @@ Planned sources (later steps):
 
 **Step 3**: live collectors for Polymarket Gamma, Binance USD-M klines, and GDELT TimelineVol. Live collectors write the **same raw JSONL contracts** as the Step 2 sample files, so the existing normalizers handle both unchanged.
 
-**Step 4**: feature engineering and labeling. Builds research-ready gold tables `training_examples` and `alpha_events` from silver inputs with strict no-lookahead semantics: features only use timestamps `<= event_time`, labels only use timestamps `> event_time`.
+**Step 4**: feature engineering and labeling. Builds research-ready gold tables `training_examples` and `live_signals` from silver inputs with strict no-lookahead semantics: features only use timestamps `<= event_time`, labels only use timestamps `> event_time`.
 
 **Step 3.5**: orchestration + monitoring + data quality. Dagster materializes partitioned assets with run metadata and schedules; Soda Core runs data-quality checks against DuckDB external views over the Parquet lake; a custom issue detector surfaces domain-specific pipeline problems (including GDELT empty days) as structured issues instead of crashes.
 
@@ -138,10 +138,10 @@ The deterministic, network-free path (`make run-sample`) continues to work and i
 ### Live raw keys
 
 ```
-raw/provider=polymarket/date=YYYY-MM-DD/live_markets.jsonl
-raw/provider=polymarket/date=YYYY-MM-DD/live_prices.jsonl
-raw/provider=binance/date=YYYY-MM-DD/live_klines.jsonl
-raw/provider=gdelt/date=YYYY-MM-DD/live_timeline.jsonl
+raw/provider=polymarket/date=YYYY-MM-DD/hour=HH/batch_id=..._markets.jsonl
+raw/provider=polymarket/date=YYYY-MM-DD/hour=HH/batch_id=..._prices.jsonl
+raw/provider=binance/date=YYYY-MM-DD/hour=HH/batch_id=....jsonl
+raw/provider=gdelt/date=YYYY-MM-DD/hour=HH/batch_id=....jsonl
 ```
 
 ### Step 4 commands
@@ -156,7 +156,7 @@ This writes:
 
 ```
 gold/training_examples/date=YYYY-MM-DD/data.parquet
-gold/alpha_events/date=YYYY-MM-DD/data.parquet
+gold/live_signals/date=YYYY-MM-DD/data.parquet
 ```
 
 End-to-end sample run:
@@ -232,7 +232,7 @@ Materialize via Dagster CLI (example: sample partition):
 dagster asset materialize -m crypto_belief_pipeline.orchestration.definitions \
   --select raw_sample_inputs,bronze_polymarket,bronze_binance,bronze_gdelt,\
 silver_belief_price_snapshots,silver_crypto_candles_1m,silver_narrative_counts,\
-gold_training_examples,gold_alpha_events,soda_data_quality,data_issues,markdown_reports \
+gold_training_examples,gold_live_signals,soda_data_quality,data_issues,markdown_reports \
   --partition 2026-05-06
 ```
 
@@ -269,7 +269,7 @@ Notes:
 ### Gold tables
 
 - **`training_examples`**: model/research-ready joined frame keyed by `(event_time, market_id, asset, narrative)` with belief shocks, narrative acceleration, past price reactions, forward returns at 1h/4h/24h, directional labels, the underreaction score, and a candidate flag. Use this for any modelling/backtesting research.
-- **`alpha_events`**: filtered subset where `is_candidate_event` is true (`belief_shock_abs_1h >= 0.08`, positive underreaction score, confidence `>= 0.6`, relevance medium or high). Use this for event studies and signal exploration.
+- **`live_signals`**: filtered subset where `is_candidate_event` is true (`belief_shock_abs_1h >= 0.08`, positive underreaction score, confidence `>= 0.6`, relevance medium or high). Use this for low-latency monitoring and signal exploration.
 
 For definitions, interpretation, and expected ranges, see [`docs/gold_features.md`](docs/gold_features.md).
 

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import typer
+import subprocess
 
 from crypto_belief_pipeline.collectors.run_live_collectors import run_live_collectors
 from crypto_belief_pipeline.config import get_settings
@@ -14,7 +15,7 @@ from crypto_belief_pipeline.features.market_tags import DEFAULT_MARKET_TAGS_PATH
 from crypto_belief_pipeline.lake.paths import partition_path
 from crypto_belief_pipeline.lake.s3 import ensure_bucket_exists
 from crypto_belief_pipeline.quality.issues import detect_data_issues, write_data_issues_reports
-from crypto_belief_pipeline.transform.run_raw_to_silver import run_raw_to_silver
+from crypto_belief_pipeline.lake.compaction import compact_daily_from_hourly, compact_hourly_microbatches
 from crypto_belief_pipeline.transform.run_sample_pipeline import run_sample_pipeline
 
 app = typer.Typer(add_completion=False)
@@ -125,18 +126,7 @@ def pipeline_run(
             collect_binance=("binance" in src),
             collect_gdelt=("gdelt" in src),
         )
-        silver_written = run_raw_to_silver(
-            run_date=run_date,
-            polymarket_markets_key=raw_written.get("raw_polymarket_markets")
-            if "polymarket" in src
-            else None,
-            polymarket_prices_key=raw_written.get("raw_polymarket_prices")
-            if "polymarket" in src
-            else None,
-            binance_klines_key=raw_written.get("raw_binance_klines") if "binance" in src else None,
-            gdelt_timeline_key=raw_written.get("raw_gdelt_timeline") if "gdelt" in src else None,
-        )
-        typer.echo(json.dumps({**raw_written, **silver_written}, indent=2, sort_keys=True))
+        typer.echo(json.dumps(raw_written, indent=2, sort_keys=True))
 
     if not skip_gold:
         gold_written = build_gold_tables(run_date=run_date)
@@ -252,22 +242,8 @@ def run_live(
         binance_limit=binance_limit,
         polymarket_limit=polymarket_limit,
     )
-
-    silver_written = run_raw_to_silver(
-        run_date=dt,
-        polymarket_markets_key=raw_written.get("raw_polymarket_markets")
-        if "polymarket" in src
-        else None,
-        polymarket_prices_key=(
-            raw_written.get("raw_polymarket_prices") if "polymarket" in src else None
-        ),
-        binance_klines_key=raw_written.get("raw_binance_klines") if "binance" in src else None,
-        gdelt_timeline_key=raw_written.get("raw_gdelt_timeline") if "gdelt" in src else None,
-    )
-
-    combined = {**raw_written, **silver_written}
-    for name in sorted(combined.keys()):
-        typer.echo(f"{name} {combined[name]}")
+    for name in sorted(raw_written.keys()):
+        typer.echo(f"{name} {raw_written[name]}")
 
 
 @app.command("build-gold")
@@ -282,6 +258,77 @@ def build_gold(
     written = build_gold_tables(run_date=dt, market_tags_path=market_tags_path)
     for name in sorted(written.keys()):
         typer.echo(f"{name} {written[name]}")
+
+
+@app.command("build-latest-gold")
+def build_latest_gold(
+    lookback_hours: int = typer.Option(48, "--lookback-hours", min=1),
+    market_tags_path: str = typer.Option(
+        DEFAULT_MARKET_TAGS_PATH,
+        "--market-tags-path",
+        help="Path to manually curated market tags CSV.",
+    ),
+) -> None:
+    """Build gold for the most recent time window.
+
+    Current implementation (MVP): build gold once per affected UTC date in the lookback window.
+    """
+
+    now = datetime.now(UTC)
+    start = now - timedelta(hours=lookback_hours)
+    days: set[str] = set()
+    cur = start.date()
+    while cur <= now.date():
+        days.add(cur.isoformat())
+        cur = (datetime.combine(cur, datetime.min.time(), tzinfo=UTC) + timedelta(days=1)).date()
+
+    for d in sorted(days):
+        written = build_gold_tables(run_date=d, market_tags_path=market_tags_path)
+        typer.echo(json.dumps({"date": d, **written}, indent=2, sort_keys=True))
+
+
+@app.command("mature-labels")
+def mature_labels(
+    dt: str = typer.Option(..., "--date", help="YYYY-MM-DD"),
+    market_tags_path: str = typer.Option(
+        DEFAULT_MARKET_TAGS_PATH,
+        "--market-tags-path",
+        help="Path to manually curated market tags CSV.",
+    ),
+) -> None:
+    """Rebuild gold so forward labels can mature.
+
+    MVP behavior: recompute gold outputs for the specified date.
+    """
+
+    written = build_gold_tables(run_date=dt, market_tags_path=market_tags_path)
+    typer.echo(json.dumps({"date": dt, **written}, indent=2, sort_keys=True))
+
+
+@app.command("compact-partitions")
+def compact_partitions(
+    layer: str = typer.Option("silver", "--layer", help="raw|bronze|silver|gold"),
+    dataset: str = typer.Option(..., "--dataset", help="Dataset name (e.g. crypto_candles_1m)"),
+    dt: str = typer.Option(..., "--date", help="YYYY-MM-DD"),
+    hour: int | None = typer.Option(None, "--hour", min=0, max=23, help="Hour for hourly compaction"),
+    to: str = typer.Option("hourly", "--to", help="hourly|daily|both"),
+) -> None:
+    """Compact micro-batch partitions to reduce small-file overhead."""
+
+    if to not in {"hourly", "daily", "both"}:
+        raise typer.BadParameter("to must be one of: hourly, daily, both")
+
+    results: dict[str, object] = {"layer": layer, "dataset": dataset, "date": dt, "to": to}
+    if to in {"hourly", "both"}:
+        if hour is None:
+            raise typer.BadParameter("--hour is required for hourly compaction")
+        res = compact_hourly_microbatches(layer=layer, dataset=dataset, run_date=dt, hour=hour)
+        results["hourly"] = res.__dict__ if res else None
+    if to in {"daily", "both"}:
+        res = compact_daily_from_hourly(layer=layer, dataset=dataset, run_date=dt)
+        results["daily"] = res.__dict__ if res else None
+
+    typer.echo(json.dumps(results, indent=2, sort_keys=True))
 
 
 @dq_app.command("run")
@@ -318,11 +365,61 @@ def cli_detect_data_issues(
     typer.echo(f"issues={len(issues)}")
 
 
+@issues_app.command("fast")
+@app.command("fast-data-issues")
+def cli_fast_data_issues(
+    dt: str = typer.Option(..., "--date", help="YYYY-MM-DD"),
+    market_tags_path: str = typer.Option(
+        DEFAULT_MARKET_TAGS_PATH,
+        "--market-tags-path",
+        help="Path to manually curated market tags CSV.",
+    ),
+    write_reports: bool = typer.Option(
+        False, "--write-reports", help="Write markdown/json reports (default: no, keep hot path fast)."
+    ),
+) -> None:
+    """Run lightweight issue detection suitable for frequent schedules."""
+
+    issues = detect_data_issues(run_date=dt, market_tags_path=market_tags_path)
+    out: dict[str, object] = {"date": dt, "issues": issues, "issues_count": len(issues)}
+    if write_reports:
+        out["report_paths"] = write_data_issues_reports(issues)
+    typer.echo(json.dumps(out, indent=2, sort_keys=True))
+
+
 @dagster_app.command("dev")
 def dagster_dev() -> None:
     """Print the module path to run `dagster dev` against."""
 
     typer.echo("dagster dev -m crypto_belief_pipeline.orchestration.definitions")
+
+
+@dagster_app.command("materialize")
+def dagster_materialize(
+    select: str = typer.Option(..., "--select", help="Dagster asset selection string."),
+    partition: str | None = typer.Option(None, "--partition", help="Partition key (e.g. YYYY-MM-DD)."),
+    module: str = typer.Option(
+        "crypto_belief_pipeline.orchestration.definitions",
+        "--module",
+        help="Dagster module containing `defs`.",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Print the command without running it.",
+    ),
+) -> None:
+    """Wrapper around `dagster asset materialize` for this repo."""
+
+    cmd: list[str] = ["dagster", "asset", "materialize", "-m", module, "--select", select]
+    if partition:
+        cmd.extend(["--partition", partition])
+
+    if dry_run:
+        typer.echo(" ".join(cmd))
+        return
+
+    raise typer.Exit(code=subprocess.call(cmd))
 
 
 @app.command("generate-reports")
