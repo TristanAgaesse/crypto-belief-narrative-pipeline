@@ -105,6 +105,16 @@ make ensure-bucket
 RUN_DATE=$(date +%F) make run-live
 ```
 
+Operator-friendly one-shot pipeline (recommended CLI interface):
+
+```bash
+. .venv/bin/activate
+make minio-up
+make ensure-bucket
+RD=$(date +%F)
+python -m crypto_belief_pipeline.cli pipeline run --date "$RD" --mode live --sources polymarket,binance
+```
+
 The deterministic, network-free path (`make run-sample`) continues to work and is the recommended evaluation path. Live collection is optional — its purpose is to prove the same raw contracts work on real APIs.
 
 ### Live raw keys
@@ -150,16 +160,41 @@ make dagster-dev
 
 Then open `http://localhost:3000`.
 
+Materialize via Dagster CLI (example: sample partition):
+
+```bash
+. .venv/bin/activate
+dagster asset materialize -m crypto_belief_pipeline.orchestration.definitions \
+  --select raw_sample_inputs,bronze_polymarket,bronze_binance,bronze_gdelt,\
+silver_belief_price_snapshots,silver_crypto_candles_1m,silver_narrative_counts,\
+gold_training_examples,gold_alpha_events,soda_data_quality,data_issues,markdown_reports \
+  --partition 2026-05-06
+```
+
 Data quality (Soda Core over DuckDB external Parquet views):
 
 ```bash
 RUN_DATE=2026-05-06 make dq
 ```
 
+Or directly:
+
+```bash
+. .venv/bin/activate
+python -m crypto_belief_pipeline.cli dq run --date 2026-05-06
+```
+
 Domain-specific data issue detector (writes `reports/data_issues.md` and `reports/data_issues.json`):
 
 ```bash
 RUN_DATE=2026-05-06 make detect-data-issues
+```
+
+Or directly:
+
+```bash
+. .venv/bin/activate
+python -m crypto_belief_pipeline.cli issues detect --date 2026-05-06
 ```
 
 Notes:

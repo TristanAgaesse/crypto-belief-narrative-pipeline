@@ -13,7 +13,9 @@ Positioning:
 - **Custom issue detector** (Step 3.5): domain-specific pipeline issues surfaced as structured `info|warning|high|critical` issues.
 - **Live collectors** (Step 3): HTTP/`gdeltdoc` clients that hit Polymarket Gamma, Binance USD-M futures, and GDELT TimelineVol, and write raw JSONL with the **same shape as Step 2 sample files**.
 - **Feature engineering** (Step 4): Polars transforms in `src/crypto_belief_pipeline/features/` for market tags, belief shocks, narrative acceleration, price reaction, forward labels, and underreaction scoring.
-- **CLI**: operational + ingest commands (`check-config`, `ensure-bucket`, `print-lake-prefix`, `run-sample`, `smoke-test-apis`, `fetch-live`, `raw-to-silver`, `run-live`, `build-gold`, `run-soda-checks`, `detect-data-issues`).
+- **CLI**: operational + ingest commands (primitives) plus a one-shot orchestration wrapper:
+  - primitives: `run-sample`, `fetch-live`, `run-live`, `build-gold`, `run-soda-checks`, `detect-data-issues`
+  - wrapper: `pipeline run` (live or sample, optional gold/DQ/issues stages)
 
 ## Data flow
 
@@ -80,7 +82,7 @@ Bronze and silver outputs use the same keys as Step 2 (one date partition per ru
 - **GDELT** (`gdeltdoc.GdeltDoc`): pulls TimelineVol series for each narrative in `config/narratives.yaml`. Defaults to the previous full UTC day to avoid partial-day weirdness.
 
 ## Reuse: shared raw → silver transform
-`transform/run_raw_to_silver.py` reads the four raw JSONL keys from S3 and writes bronze + silver using the same normalizers as the sample pipeline. This is the single function the live `run-live` command uses to prove the contract.
+`transform/run_raw_to_silver.py` reads any available raw JSONL keys from S3 (Polymarket/Binance/GDELT) and writes bronze + silver using the same normalizers as the sample pipeline. The live `run-live` command uses this to prove the contract without requiring every source to be present.
 
 ## Step 3.5 Dagster asset graph (coarse view)
 
