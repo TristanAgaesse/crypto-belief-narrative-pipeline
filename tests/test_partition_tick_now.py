@@ -6,7 +6,8 @@ import pytest
 
 pytest.importorskip("dagster")
 
-import crypto_belief_pipeline.orchestration.assets as a
+import crypto_belief_pipeline.orchestration._helpers as helpers
+from crypto_belief_pipeline.orchestration.assets import _partition_tick_now_utc
 
 
 def test_partition_tick_now_stays_within_partition_day(monkeypatch) -> None:
@@ -18,9 +19,11 @@ def test_partition_tick_now_stays_within_partition_day(monkeypatch) -> None:
         def now(cls, tz=None):  # type: ignore[override]
             return datetime(2026, 5, 8, 12, 0, 0, tzinfo=UTC)
 
-    monkeypatch.setattr(a, "datetime", _FrozenDateTime)
+    # `_partition_tick_now_utc` is defined in `orchestration._helpers`; patch the
+    # `datetime` symbol in that module rather than the legacy `assets` re-export.
+    monkeypatch.setattr(helpers, "datetime", _FrozenDateTime)
 
-    tick = a._partition_tick_now_utc(run_date)
+    tick = _partition_tick_now_utc(run_date)
 
     assert tick.tzinfo == UTC
     assert tick.date().isoformat() == "2026-05-06"

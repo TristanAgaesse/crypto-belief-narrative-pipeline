@@ -13,7 +13,7 @@ from crypto_belief_pipeline.orchestration.jobs import (
     silver_microbatch_5m_job,
     soda_60m_job,
 )
-from dagster import ScheduleDefinition
+from dagster import ScheduleDefinition  # type: ignore[attr-defined]
 
 live_market_fast_schedule = ScheduleDefinition(
     name="live_market_fast_schedule",

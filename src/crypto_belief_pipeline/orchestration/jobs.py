@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dagster import AssetSelection, define_asset_job
+from dagster import AssetSelection, define_asset_job  # type: ignore[attr-defined]
 
 binance_raw_1m_job = define_asset_job(
     name="binance_raw_1m_job",
