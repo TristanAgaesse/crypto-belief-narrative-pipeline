@@ -27,6 +27,11 @@ from crypto_belief_pipeline.orchestration.assets_raw import (
     raw_gdelt,
     raw_polymarket,
 )
+from crypto_belief_pipeline.orchestration.raw_inputs_from_lake import (
+    resolve_raw_binance_for_partition,
+    resolve_raw_gdelt_for_partition,
+    resolve_raw_polymarket_for_partition,
+)
 from crypto_belief_pipeline.orchestration.resources import resolve_run_date_from_context
 from crypto_belief_pipeline.transform.normalize_binance import (
     normalize_klines,
@@ -46,15 +51,16 @@ from dagster import MetadataValue, asset
     deps=[raw_polymarket],
     description="Normalize Polymarket raw JSONL into bronze Parquet (typed, source-shaped).",
 )
-def bronze_polymarket(context, raw_polymarket: dict[str, str]) -> dict[str, str]:
+def bronze_polymarket(context) -> dict[str, str]:
     run_date = resolve_run_date_from_context(context)
+    raw_polymarket, read_bucket = resolve_raw_polymarket_for_partition(run_date)
     markets_key = raw_polymarket["raw_polymarket_markets"]
     prices_key = raw_polymarket["raw_polymarket_prices"]
     source_batch_id = raw_polymarket.get("source_batch_id") or ""
     source_window_start = raw_polymarket.get("source_window_start") or ""
     source_window_end = raw_polymarket.get("source_window_end") or ""
-    markets = _safe_read_jsonl(markets_key)
-    prices = _safe_read_jsonl(prices_key)
+    markets = _safe_read_jsonl(markets_key, bucket=read_bucket)
+    prices = _safe_read_jsonl(prices_key, bucket=read_bucket)
 
     batch_id = generate_batch_id(_partition_tick_now_utc(run_date))
     parts = split_batch_parts(batch_id)
@@ -101,13 +107,14 @@ def bronze_polymarket(context, raw_polymarket: dict[str, str]) -> dict[str, str]
     deps=[raw_binance],
     description="Normalize Binance raw JSONL into bronze Parquet (typed, source-shaped).",
 )
-def bronze_binance(context, raw_binance: dict[str, str]) -> dict[str, str]:
+def bronze_binance(context) -> dict[str, str]:
     run_date = resolve_run_date_from_context(context)
+    raw_binance, read_bucket = resolve_raw_binance_for_partition(run_date)
     chosen = raw_binance["raw_binance_klines"]
     source_batch_id = raw_binance.get("source_batch_id") or ""
     source_window_start = raw_binance.get("source_window_start") or ""
     source_window_end = raw_binance.get("source_window_end") or ""
-    klines = _safe_read_jsonl(chosen)
+    klines = _safe_read_jsonl(chosen, bucket=read_bucket)
     bronze_df = _with_lineage(normalize_klines(klines), raw_binance)
 
     batch_id = generate_batch_id(_partition_tick_now_utc(run_date))
@@ -139,13 +146,14 @@ def bronze_binance(context, raw_binance: dict[str, str]) -> dict[str, str]:
     deps=[raw_gdelt],
     description="Normalize GDELT raw JSONL into bronze Parquet (typed, source-shaped).",
 )
-def bronze_gdelt(context, raw_gdelt: dict[str, str]) -> dict[str, str]:
+def bronze_gdelt(context) -> dict[str, str]:
     run_date = resolve_run_date_from_context(context)
+    raw_gdelt, read_bucket = resolve_raw_gdelt_for_partition(run_date)
     chosen = raw_gdelt["raw_gdelt_timeline"]
     source_batch_id = raw_gdelt.get("source_batch_id") or ""
     source_window_start = raw_gdelt.get("source_window_start") or ""
     source_window_end = raw_gdelt.get("source_window_end") or ""
-    timeline = _safe_read_jsonl(chosen)
+    timeline = _safe_read_jsonl(chosen, bucket=read_bucket)
     bronze_df = _with_lineage(normalize_timeline(timeline), raw_gdelt)
 
     batch_id = generate_batch_id(_partition_tick_now_utc(run_date))

@@ -111,6 +111,42 @@ def list_parquet_keys_under(partition_prefix: str, bucket: str | None = None) ->
     return sorted(set(out))
 
 
+def list_jsonl_keys_under(partition_prefix: str, bucket: str | None = None) -> list[str]:
+    """List lake-relative keys for ``*.jsonl`` objects under a partition prefix."""
+
+    settings = get_settings()
+    b = bucket or settings.s3_bucket
+    client = get_s3_client(settings=settings)
+
+    full_prefix = full_s3_key(partition_prefix.rstrip("/")) + "/"
+    s3_prefix_part = full_s3_key("")
+    if s3_prefix_part and not s3_prefix_part.endswith("/"):
+        s3_prefix_part = s3_prefix_part + "/"
+
+    out: list[str] = []
+    token: str | None = None
+    while True:
+        kwargs: dict[str, object] = {"Bucket": b, "Prefix": full_prefix}
+        if token:
+            kwargs["ContinuationToken"] = token
+        resp = client.list_objects_v2(**kwargs)
+        for item in resp.get("Contents") or []:
+            full_key = item.get("Key")
+            if not isinstance(full_key, str) or not full_key.endswith(".jsonl"):
+                continue
+            rel_key = full_key
+            if s3_prefix_part and rel_key.startswith(s3_prefix_part):
+                rel_key = rel_key[len(s3_prefix_part) :]
+            out.append(rel_key)
+        if not resp.get("IsTruncated"):
+            break
+        token = resp.get("NextContinuationToken")
+        if not token:
+            break
+
+    return sorted(set(out))
+
+
 def read_parquet_partition_df(partition_prefix: str, bucket: str | None = None) -> pl.DataFrame:
     """Read all parquet shards under a partition prefix into a single DataFrame.
 
@@ -151,6 +187,7 @@ def read_parquet_partition_df(partition_prefix: str, bucket: str | None = None) 
 
 __all__ = [
     "LakeKeyNotFound",
+    "list_jsonl_keys_under",
     "list_parquet_keys_under",
     "read_jsonl_records",
     "read_parquet_df",

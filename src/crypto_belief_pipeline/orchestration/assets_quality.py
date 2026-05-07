@@ -42,18 +42,12 @@ from dagster import (
 )
 def gold_tables(
     context,
-    silver_belief_price_snapshots: dict[str, str],
-    silver_crypto_candles_1m: dict[str, str],
-    silver_narrative_counts: dict[str, str],
 ) -> tuple[Output[dict[str, str]], Output[dict[str, str]]]:
     """Build gold tables once and expose both outputs as distinct assets."""
 
     run_date = resolve_run_date_from_context(context)
     written = build_gold_tables(
         run_date=run_date.isoformat(),
-        belief_key=silver_belief_price_snapshots["silver_belief_price_snapshots"],
-        candles_key=silver_crypto_candles_1m["silver_crypto_candles_1m"],
-        narrative_key=silver_narrative_counts["silver_narrative_counts"],
     )
 
     training_key = written["training_examples"]

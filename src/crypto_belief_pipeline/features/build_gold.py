@@ -21,7 +21,7 @@ from crypto_belief_pipeline.features.scoring import (
     add_underreaction_score,
 )
 from crypto_belief_pipeline.lake.paths import partition_path
-from crypto_belief_pipeline.lake.read import read_parquet_df
+from crypto_belief_pipeline.lake.read import read_parquet_df, read_parquet_partition_df
 from crypto_belief_pipeline.lake.write import write_parquet_df
 
 
@@ -39,17 +39,6 @@ def _normalize_event_time_utc(df: pl.DataFrame) -> pl.DataFrame:
     if tz is None:
         return df.with_columns(pl.col("event_time").dt.replace_time_zone("UTC"))
     return df.with_columns(pl.col("event_time").dt.convert_time_zone("UTC"))
-
-
-def _default_silver_keys(run_date: date | str) -> tuple[str, str, str]:
-    belief_prefix = partition_path("silver", "belief_price_snapshots", run_date)
-    candles_prefix = partition_path("silver", "crypto_candles_1m", run_date)
-    narrative_prefix = partition_path("silver", "narrative_counts", run_date)
-    return (
-        f"{belief_prefix}/data.parquet",
-        f"{candles_prefix}/data.parquet",
-        f"{narrative_prefix}/data.parquet",
-    )
 
 
 def _gold_keys(run_date: date | str) -> tuple[str, str]:
@@ -78,16 +67,33 @@ def build_gold_tables(
     gold outputs stay co-located there.
 
     Returns a dict mapping ``{"training_examples": key, "live_signals": key}``.
+
+    When a silver key is omitted, reads the full partition from the lake (single
+    ``data.parquet`` and/or Dagster microbatch shards under ``date=...``).
+    When provided (e.g. CLI threading exact outputs), reads that concrete object key.
     """
 
-    default_belief, default_candles, default_narrative = _default_silver_keys(run_date)
-    belief_key = belief_key or default_belief
-    candles_key = candles_key or default_candles
-    narrative_key = narrative_key or default_narrative
-
-    belief_silver = read_parquet_df(belief_key, bucket=bucket)
-    candles_silver = read_parquet_df(candles_key, bucket=bucket)
-    narrative_silver = read_parquet_df(narrative_key, bucket=bucket)
+    belief_silver = (
+        read_parquet_df(belief_key, bucket=bucket)
+        if belief_key is not None
+        else read_parquet_partition_df(
+            partition_path("silver", "belief_price_snapshots", run_date), bucket=bucket
+        )
+    )
+    candles_silver = (
+        read_parquet_df(candles_key, bucket=bucket)
+        if candles_key is not None
+        else read_parquet_partition_df(
+            partition_path("silver", "crypto_candles_1m", run_date), bucket=bucket
+        )
+    )
+    narrative_silver = (
+        read_parquet_df(narrative_key, bucket=bucket)
+        if narrative_key is not None
+        else read_parquet_partition_df(
+            partition_path("silver", "narrative_counts", run_date), bucket=bucket
+        )
+    )
 
     tags = validate_market_tags(load_market_tags(market_tags_path))
 

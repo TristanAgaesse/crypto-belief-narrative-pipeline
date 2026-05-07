@@ -115,7 +115,7 @@ def _sample_guardrails() -> str:
     return resolve_sample_bucket()
 
 
-def _safe_read_jsonl(key: str) -> list[dict]:
+def _safe_read_jsonl(key: str, bucket: str | None = None) -> list[dict]:
     """Read raw JSONL, treating missing-but-expected keys as empty.
 
     Missing keys are a legitimate empty-batch signal in this pipeline (e.g.
@@ -124,7 +124,7 @@ def _safe_read_jsonl(key: str) -> list[dict]:
     instead of producing silently empty bronze.
     """
     try:
-        return read_jsonl_records(key)
+        return read_jsonl_records(key, bucket=bucket)
     except LakeKeyNotFound:
         return []
 

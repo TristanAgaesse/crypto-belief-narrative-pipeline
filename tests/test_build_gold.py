@@ -82,7 +82,7 @@ def test_build_gold_writes_expected_keys(monkeypatch, tmp_path) -> None:
         "pm_btc_reserve_001,BTC,bitcoin_reserve,1,high,0.9,sample\n"
     )
 
-    monkeypatch.setattr(bg, "read_parquet_df", fake_read_parquet_df)
+    monkeypatch.setattr("crypto_belief_pipeline.lake.read.read_parquet_df", fake_read_parquet_df)
     monkeypatch.setattr(bg, "write_parquet_df", fake_write_parquet_df)
 
     written = bg.build_gold_tables(run_date="2026-05-06", market_tags_path=tags_csv)
@@ -103,7 +103,10 @@ def test_build_gold_training_examples_contains_required_columns(monkeypatch, tmp
 
     captured: dict[str, pl.DataFrame] = {}
 
-    monkeypatch.setattr(bg, "read_parquet_df", lambda key, bucket=None: silver_lookup[key])
+    monkeypatch.setattr(
+        "crypto_belief_pipeline.lake.read.read_parquet_df",
+        lambda key, bucket=None: silver_lookup[key],
+    )
     monkeypatch.setattr(
         bg, "write_parquet_df", lambda df, key, bucket=None: captured.setdefault(key, df)
     )
@@ -194,7 +197,10 @@ def test_build_gold_normalizes_mixed_timezone_event_time(monkeypatch, tmp_path) 
     }
     captured: dict[str, pl.DataFrame] = {}
 
-    monkeypatch.setattr(bg, "read_parquet_df", lambda key, bucket=None: silver_lookup[key])
+    monkeypatch.setattr(
+        "crypto_belief_pipeline.lake.read.read_parquet_df",
+        lambda key, bucket=None: silver_lookup[key],
+    )
     monkeypatch.setattr(
         bg, "write_parquet_df", lambda df, key, bucket=None: captured.setdefault(key, df)
     )
@@ -270,7 +276,10 @@ def test_build_gold_duplicate_silver_narrative_does_not_explode_cardinality(
     }
     captured: dict[str, pl.DataFrame] = {}
 
-    monkeypatch.setattr(bg, "read_parquet_df", lambda key, bucket=None: silver_lookup[key])
+    monkeypatch.setattr(
+        "crypto_belief_pipeline.lake.read.read_parquet_df",
+        lambda key, bucket=None: silver_lookup[key],
+    )
     monkeypatch.setattr(
         bg, "write_parquet_df", lambda df, key, bucket=None: captured.setdefault(key, df)
     )
@@ -300,7 +309,10 @@ def test_build_gold_live_signals_is_filtered_subset(monkeypatch, tmp_path) -> No
     }
     captured: dict[str, pl.DataFrame] = {}
 
-    monkeypatch.setattr(bg, "read_parquet_df", lambda key, bucket=None: silver_lookup[key])
+    monkeypatch.setattr(
+        "crypto_belief_pipeline.lake.read.read_parquet_df",
+        lambda key, bucket=None: silver_lookup[key],
+    )
     monkeypatch.setattr(
         bg, "write_parquet_df", lambda df, key, bucket=None: captured.setdefault(key, df)
     )
