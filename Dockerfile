@@ -23,6 +23,7 @@ COPY pyproject.toml README.md ./
 COPY src ./src
 COPY dq ./dq
 COPY config ./config
+COPY data ./data
 
 RUN python -m pip install --upgrade pip \
   && pip install .
