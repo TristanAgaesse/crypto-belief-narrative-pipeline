@@ -1,0 +1,7 @@
+checks for gold_alpha_events:
+  # Alpha events may legitimately be empty on some days.
+  - missing_count(event_time) = 0
+  - missing_count(asset) = 0
+  - invalid_count(asset) = 0:
+      valid values: ["BTC", "ETH", "SOL"]
+

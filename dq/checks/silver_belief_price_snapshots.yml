@@ -1,0 +1,9 @@
+checks for silver_belief_price_snapshots:
+  - row_count > 0
+  - missing_count(timestamp) = 0
+  - missing_count(market_id) = 0
+  - missing_count(price) = 0
+  - min(price) >= 0
+  - max(price) <= 1
+  - duplicate_count(market_id, outcome, timestamp) = 0
+

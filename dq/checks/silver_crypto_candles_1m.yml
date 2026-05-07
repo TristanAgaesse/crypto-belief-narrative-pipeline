@@ -1,0 +1,10 @@
+checks for silver_crypto_candles_1m:
+  - row_count > 0
+  - missing_count(timestamp) = 0
+  - missing_count(asset) = 0
+  - missing_count(close) = 0
+  - duplicate_count(asset, timestamp) = 0
+  - invalid_count(asset) = 0:
+      valid values: ["BTC", "ETH", "SOL"]
+  - min(close) > 0
+

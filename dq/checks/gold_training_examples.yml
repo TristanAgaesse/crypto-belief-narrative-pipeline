@@ -1,0 +1,10 @@
+checks for gold_training_examples:
+  - row_count > 0
+  - missing_count(event_time) = 0
+  - missing_count(market_id) = 0
+  - missing_count(asset) = 0
+  - invalid_count(asset) = 0:
+      valid values: ["BTC", "ETH", "SOL"]
+  - invalid_count(direction) = 0:
+      valid values: [-1, 1]
+

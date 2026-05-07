@@ -1,0 +1,6 @@
+checks for silver_narrative_counts:
+  # GDELT may be unavailable / rate-limited, so do not require row_count > 0.
+  - missing_count(timestamp) = 0
+  - missing_count(narrative) = 0
+  - min(mention_volume) >= 0
+

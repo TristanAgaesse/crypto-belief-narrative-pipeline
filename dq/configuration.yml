@@ -1,0 +1,7 @@
+data_source crypto_lake:
+  type: duckdb
+  path: data/quality/crypto_lake.duckdb
+  # S3/MinIO credentials are configured inside the DuckDB file via a DuckDB SECRET
+  # created by `create_duckdb_quality_db(...)`. This avoids relying on DuckDB config
+  # keys that may differ across DuckDB versions.
+
