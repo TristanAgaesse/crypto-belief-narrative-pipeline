@@ -1,0 +1,31 @@
+mode: low_latency
+
+cadence:
+  binance_raw_seconds: 60
+  polymarket_prices_seconds: 300
+  polymarket_discovery_seconds: 21600
+  gdelt_seconds: 3600
+  silver_seconds: 300
+  gold_live_seconds: 300
+  gold_labels_seconds: 3600
+  soda_seconds: 3600
+  reports_seconds: 86400
+
+lake:
+  micro_batch: true
+  partition_granularity: hour
+  compact_hourly: true
+  compact_daily: true
+
+quality:
+  fast_checks_enabled: true
+  soda_enabled: true
+  soda_on_every_run: false
+
+sample:
+  sample_enabled: false
+  # If null, sample uses the same S3 bucket but a different prefix.
+  sample_lake_bucket: null
+  # Guardrail: sample writes must never use the live prefix.
+  sample_lake_prefix: "__sample__"
+
