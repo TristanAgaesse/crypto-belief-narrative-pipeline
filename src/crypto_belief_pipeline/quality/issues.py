@@ -55,13 +55,13 @@ def detect_data_issues(
 
     # Gold keys
     training_key = f"{partition_path('gold', 'training_examples', rd)}/data.parquet"
-    alpha_key = f"{partition_path('gold', 'alpha_events', rd)}/data.parquet"
+    live_key = f"{partition_path('gold', 'live_signals', rd)}/data.parquet"
 
     belief = _safe_read_parquet(belief_key)
     candles = _safe_read_parquet(candles_key)
     narrative = _safe_read_parquet(narrative_key)
     training = _safe_read_parquet(training_key)
-    alpha = _safe_read_parquet(alpha_key)
+    live = _safe_read_parquet(live_key)
 
     issues: list[dict] = []
 
@@ -214,15 +214,15 @@ def detect_data_issues(
                 )
             )
 
-    # Alpha events empty is informational
-    if alpha.height == 0:
+    # Live signals empty is informational
+    if live.height == 0:
         issues.append(
             _issue(
                 severity="info",
                 category="research_validity",
                 source="gold",
-                issue="alpha_events_empty",
-                message="gold_alpha_events has 0 rows for this run_date (may be a valid outcome).",
+                issue="live_signals_empty",
+                message="gold_live_signals has 0 rows for this run_date (may be a valid outcome).",
                 suggested_action=(
                     "If unexpected, loosen candidate thresholds or validate upstream "
                     "belief/narrative signals."

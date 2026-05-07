@@ -75,6 +75,16 @@ def normalize_klines(records: list[dict]) -> pl.DataFrame:
         pl.col("raw_json").cast(pl.String),
     ).with_columns(_ingested_at_expr())
 
+    bronze = bronze.with_columns(
+        pl.lit(datetime.now(UTC).replace(microsecond=0)).alias("load_timestamp")
+    )
+
+    # Deterministic within-batch dedup (overlap/retries can produce duplicates).
+    bronze = (
+        bronze.sort(["timestamp", "symbol", "interval", "ingested_at"])
+        .unique(subset=["timestamp", "symbol", "interval"], keep="last")
+    )
+
     return bronze.select(
         "timestamp",
         "exchange",
@@ -89,6 +99,7 @@ def normalize_klines(records: list[dict]) -> pl.DataFrame:
         "number_of_trades",
         "raw_json",
         "ingested_at",
+        "load_timestamp",
     )
 
 
@@ -110,7 +121,7 @@ def to_crypto_candles_1m(bronze_klines: pl.DataFrame) -> pl.DataFrame:
             }
         )
 
-    return bronze_klines.select(
+    silver = bronze_klines.select(
         pl.col("timestamp"),
         pl.col("exchange"),
         pl.col("symbol").replace_strict(_SYMBOL_TO_ASSET, default=None).alias("asset"),
@@ -122,4 +133,9 @@ def to_crypto_candles_1m(bronze_klines: pl.DataFrame) -> pl.DataFrame:
         pl.col("volume"),
         pl.col("quote_volume"),
         pl.col("number_of_trades"),
+        pl.lit(datetime.now(UTC).replace(microsecond=0)).alias("processed_at"),
+    )
+    return (
+        silver.sort(["timestamp", "asset", "symbol"])
+        .unique(subset=["timestamp", "asset"], keep="last")
     )

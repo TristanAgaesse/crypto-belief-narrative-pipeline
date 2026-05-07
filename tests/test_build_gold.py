@@ -89,7 +89,7 @@ def test_build_gold_writes_expected_keys(monkeypatch, tmp_path) -> None:
 
     assert written == {
         "training_examples": "gold/training_examples/date=2026-05-06/data.parquet",
-        "alpha_events": "gold/alpha_events/date=2026-05-06/data.parquet",
+        "live_signals": "gold/live_signals/date=2026-05-06/data.parquet",
     }
     assert set(written.values()).issubset(set(captured.keys()))
 
@@ -141,7 +141,7 @@ def test_build_gold_training_examples_contains_required_columns(monkeypatch, tmp
     assert training.height >= 1
 
 
-def test_build_gold_alpha_events_is_filtered_subset(monkeypatch, tmp_path) -> None:
+def test_build_gold_live_signals_is_filtered_subset(monkeypatch, tmp_path) -> None:
     silver_lookup = {
         "silver/belief_price_snapshots/date=2026-05-06/data.parquet": _belief_silver(),
         "silver/crypto_candles_1m/date=2026-05-06/data.parquet": _candles_silver(),
@@ -163,7 +163,7 @@ def test_build_gold_alpha_events_is_filtered_subset(monkeypatch, tmp_path) -> No
     bg.build_gold_tables(run_date="2026-05-06", market_tags_path=tags_csv)
 
     training = captured["gold/training_examples/date=2026-05-06/data.parquet"]
-    alpha = captured["gold/alpha_events/date=2026-05-06/data.parquet"]
-    assert alpha.height <= training.height
-    if alpha.height > 0:
-        assert alpha["is_candidate_event"].all()
+    live = captured["gold/live_signals/date=2026-05-06/data.parquet"]
+    assert live.height <= training.height
+    if live.height > 0:
+        assert live["is_candidate_event"].all()

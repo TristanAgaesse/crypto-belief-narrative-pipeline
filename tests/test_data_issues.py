@@ -48,9 +48,9 @@ def test_high_missing_future_ret_4h_rate_creates_high_issue(monkeypatch) -> None
     )
 
 
-def test_alpha_events_empty_creates_info_issue(monkeypatch) -> None:
+def test_live_signals_empty_creates_info_issue(monkeypatch) -> None:
     def fake_read_parquet_df(key: str, bucket=None) -> pl.DataFrame:
-        if "gold/alpha_events" in key:
+        if "gold/live_signals" in key:
             return pl.DataFrame()
         if "gold/training_examples" in key:
             return pl.DataFrame({"future_ret_4h": [0.01]})
@@ -60,7 +60,7 @@ def test_alpha_events_empty_creates_info_issue(monkeypatch) -> None:
     monkeypatch.setattr(qi, "load_market_tags", lambda path: pl.DataFrame({"market_id": ["m1"]}))
 
     issues = qi.detect_data_issues("2026-05-06")
-    assert any(i["severity"] == "info" and i["issue"] == "alpha_events_empty" for i in issues)
+    assert any(i["severity"] == "info" and i["issue"] == "live_signals_empty" for i in issues)
 
 
 def test_reports_are_written(tmp_path) -> None:

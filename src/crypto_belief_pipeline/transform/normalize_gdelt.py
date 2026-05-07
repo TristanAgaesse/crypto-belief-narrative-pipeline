@@ -58,6 +58,15 @@ def normalize_timeline(records: list[dict]) -> pl.DataFrame:
         pl.col("raw_json").cast(pl.String),
     ).with_columns(_ingested_at_expr())
 
+    bronze = bronze.with_columns(
+        pl.lit(datetime.now(UTC).replace(microsecond=0)).alias("load_timestamp")
+    )
+
+    bronze = (
+        bronze.sort(["timestamp", "narrative", "query", "source", "ingested_at"])
+        .unique(subset=["timestamp", "narrative", "query", "source"], keep="last")
+    )
+
     return bronze.select(
         "timestamp",
         "narrative",
@@ -67,6 +76,7 @@ def normalize_timeline(records: list[dict]) -> pl.DataFrame:
         "source",
         "raw_json",
         "ingested_at",
+        "load_timestamp",
     )
 
 
@@ -83,11 +93,16 @@ def to_narrative_counts(bronze_timeline: pl.DataFrame) -> pl.DataFrame:
             }
         )
 
-    return bronze_timeline.select(
+    silver = bronze_timeline.select(
         "timestamp",
         "narrative",
         "query",
         "mention_volume",
         "avg_tone",
         "source",
+        pl.lit(datetime.now(UTC).replace(microsecond=0)).alias("processed_at"),
+    )
+    return (
+        silver.sort(["timestamp", "narrative", "query", "source"])
+        .unique(subset=["timestamp", "narrative", "query", "source"], keep="last")
     )

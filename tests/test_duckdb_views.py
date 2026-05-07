@@ -40,7 +40,7 @@ def test_create_duckdb_quality_db_creates_views(tmp_path, monkeypatch) -> None:
         / "data.parquet",
         "gold_training_examples": Path(fake_partition_path("gold", "training_examples", run_date))
         / "data.parquet",
-        "gold_alpha_events": Path(fake_partition_path("gold", "alpha_events", run_date))
+        "gold_live_signals": Path(fake_partition_path("gold", "live_signals", run_date))
         / "data.parquet",
     }
     for p in paths.values():
@@ -54,7 +54,9 @@ def test_create_duckdb_quality_db_creates_views(tmp_path, monkeypatch) -> None:
     con = duckdb.connect(str(out))
     try:
         for name in paths.keys():
-            assert con.execute(f"select count(*) from {name}").fetchone()[0] == 1
+            row = con.execute(f"select count(*) from {name}").fetchone()
+            assert row is not None
+            assert row[0] == 1
     finally:
         con.close()
 
@@ -77,7 +79,7 @@ def test_create_duckdb_quality_db_materialize_tables_optional(tmp_path, monkeypa
         ("silver", "crypto_candles_1m"),
         ("silver", "narrative_counts"),
         ("gold", "training_examples"),
-        ("gold", "alpha_events"),
+        ("gold", "live_signals"),
     ]:
         q = Path(fake_partition_path(layer, dataset, run_date)) / "data.parquet"
         q.parent.mkdir(parents=True, exist_ok=True)
@@ -90,6 +92,8 @@ def test_create_duckdb_quality_db_materialize_tables_optional(tmp_path, monkeypa
     con = duckdb.connect(str(out))
     try:
         # Physical tables should exist and be queryable.
-        assert con.execute("select count(*) from silver_belief_price_snapshots").fetchone()[0] == 1
+        row = con.execute("select count(*) from silver_belief_price_snapshots").fetchone()
+        assert row is not None
+        assert row[0] == 1
     finally:
         con.close()

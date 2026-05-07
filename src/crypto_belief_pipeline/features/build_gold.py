@@ -53,8 +53,8 @@ def _default_silver_keys(run_date: date | str) -> tuple[str, str, str]:
 
 def _gold_keys(run_date: date | str) -> tuple[str, str]:
     training_prefix = partition_path("gold", "training_examples", run_date)
-    alpha_prefix = partition_path("gold", "alpha_events", run_date)
-    return f"{training_prefix}/data.parquet", f"{alpha_prefix}/data.parquet"
+    live_prefix = partition_path("gold", "live_signals", run_date)
+    return f"{training_prefix}/data.parquet", f"{live_prefix}/data.parquet"
 
 
 def build_gold_tables(
@@ -68,9 +68,9 @@ def build_gold_tables(
 
     Reads silver Parquet inputs, joins belief / narrative / price features,
     applies directional labels and the underreaction scoring, then writes the
-    full ``training_examples`` table and the filtered ``alpha_events`` table.
+    full ``training_examples`` table and the filtered ``live_signals`` table.
 
-    Returns a dict mapping ``{"training_examples": key, "alpha_events": key}``.
+    Returns a dict mapping ``{"training_examples": key, "live_signals": key}``.
     """
 
     default_belief, default_candles, default_narrative = _default_silver_keys(run_date)
@@ -101,14 +101,14 @@ def build_gold_tables(
     with_score = add_underreaction_score(with_pen)
     training_examples = add_candidate_flag(with_score)
 
-    alpha_events = training_examples.filter(pl.col("is_candidate_event"))
+    live_signals = training_examples.filter(pl.col("is_candidate_event"))
 
-    training_key, alpha_key = _gold_keys(run_date)
+    training_key, live_key = _gold_keys(run_date)
 
     write_parquet_df(training_examples, training_key)
-    write_parquet_df(alpha_events, alpha_key)
+    write_parquet_df(live_signals, live_key)
 
     return {
         "training_examples": training_key,
-        "alpha_events": alpha_key,
+        "live_signals": live_key,
     }

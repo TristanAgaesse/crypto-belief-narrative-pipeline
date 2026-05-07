@@ -60,7 +60,7 @@ def normalize_markets(records: list[dict]) -> pl.DataFrame:
     slim = [{k: v for k, v in r.items() if k != "raw"} for r in records]
     df = pl.DataFrame(slim).with_columns(pl.Series("raw_json", _raw_json(records)))
 
-    return df.select(
+    bronze = df.select(
         pl.col("market_id").cast(pl.String),
         pl.col("question").cast(pl.String),
         pl.col("slug").cast(pl.String),
@@ -72,6 +72,13 @@ def normalize_markets(records: list[dict]) -> pl.DataFrame:
         pl.col("volume").cast(pl.Float64),
         pl.col("raw_json").cast(pl.String),
     ).with_columns(_ingested_at_expr())
+
+    bronze = bronze.with_columns(
+        pl.lit(datetime.now(UTC).replace(microsecond=0)).alias("load_timestamp")
+    )
+
+    bronze = bronze.sort(["market_id", "ingested_at"]).unique(subset=["market_id"], keep="last")
+    return bronze
 
 
 def normalize_price_snapshots(records: list[dict]) -> pl.DataFrame:
@@ -117,6 +124,15 @@ def normalize_price_snapshots(records: list[dict]) -> pl.DataFrame:
         .with_columns(_ingested_at_expr())
     )
 
+    bronze = bronze.with_columns(
+        pl.lit(datetime.now(UTC).replace(microsecond=0)).alias("load_timestamp")
+    )
+
+    bronze = (
+        bronze.sort(["timestamp", "market_id", "outcome", "ingested_at"])
+        .unique(subset=["timestamp", "market_id", "outcome"], keep="last")
+    )
+
     return bronze.select(
         "timestamp",
         "market_id",
@@ -129,6 +145,7 @@ def normalize_price_snapshots(records: list[dict]) -> pl.DataFrame:
         "volume",
         "raw_json",
         "ingested_at",
+        "load_timestamp",
     )
 
 
@@ -149,7 +166,7 @@ def to_belief_price_snapshots(bronze_prices: pl.DataFrame) -> pl.DataFrame:
             }
         )
 
-    return bronze_prices.select(
+    silver = bronze_prices.select(
         pl.col("timestamp"),
         pl.lit("polymarket").alias("platform"),
         pl.col("market_id"),
@@ -160,4 +177,9 @@ def to_belief_price_snapshots(bronze_prices: pl.DataFrame) -> pl.DataFrame:
         pl.col("spread"),
         pl.col("liquidity"),
         pl.col("volume"),
+        pl.lit(datetime.now(UTC).replace(microsecond=0)).alias("processed_at"),
+    )
+    return (
+        silver.sort(["timestamp", "market_id", "outcome"])
+        .unique(subset=["timestamp", "market_id", "outcome"], keep="last")
     )

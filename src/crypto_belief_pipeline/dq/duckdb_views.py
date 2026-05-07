@@ -96,7 +96,7 @@ def create_duckdb_quality_db(
             f"{partition_path('silver', 'narrative_counts', rd)}/data.parquet"
         ),
         "gold_training_examples": f"{partition_path('gold', 'training_examples', rd)}/data.parquet",
-        "gold_alpha_events": f"{partition_path('gold', 'alpha_events', rd)}/data.parquet",
+        "gold_live_signals": f"{partition_path('gold', 'live_signals', rd)}/data.parquet",
     }
 
     con = duckdb.connect(str(dbp))

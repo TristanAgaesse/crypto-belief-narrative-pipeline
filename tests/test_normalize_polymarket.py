@@ -27,6 +27,7 @@ def test_normalize_markets_columns_and_rows() -> None:
         "volume",
         "raw_json",
         "ingested_at",
+        "load_timestamp",
     }
     assert df.schema["end_date"] == pl.Datetime
 
