@@ -5,6 +5,7 @@ from typing import Any
 import polars as pl
 
 from crypto_belief_pipeline.config import get_settings
+from crypto_belief_pipeline.lake.keys import full_s3_key
 from crypto_belief_pipeline.lake.s3 import get_s3_client
 
 try:
@@ -26,7 +27,7 @@ def write_jsonl_records(records: list[dict], key: str, bucket: str | None = None
     b = bucket or settings.s3_bucket
     body = ("\n".join(json.dumps(r, ensure_ascii=False) for r in records) + "\n").encode("utf-8")
     client = get_s3_client(settings=settings)
-    client.put_object(Bucket=b, Key=key, Body=body, ContentType="application/x-ndjson")
+    client.put_object(Bucket=b, Key=full_s3_key(key), Body=body, ContentType="application/x-ndjson")
 
 
 def write_parquet_df(df: Any, key: str, bucket: str | None = None) -> None:
@@ -38,7 +39,7 @@ def write_parquet_df(df: Any, key: str, bucket: str | None = None) -> None:
     client = get_s3_client(settings=settings)
     client.put_object(
         Bucket=b,
-        Key=key,
+        Key=full_s3_key(key),
         Body=buf.getvalue(),
         ContentType="application/octet-stream",
     )

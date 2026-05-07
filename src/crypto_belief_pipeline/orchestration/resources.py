@@ -31,4 +31,4 @@ class LakeKeys:
     silver_narrative_counts: str | None = None
 
     gold_training_examples: str | None = None
-    gold_alpha_events: str | None = None
+    gold_live_signals: str | None = None
