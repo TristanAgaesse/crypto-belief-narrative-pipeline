@@ -12,6 +12,7 @@ This project is currently optimized for local-first iteration. Possible future h
 More concrete next steps:
 
 - **Kubernetes/Docker deployment**: containerize collectors/transforms and run Dagster as a service.
+- **Multi-pipeline layout**: keep a single Dagster “control plane” (webserver/daemon + Postgres) and add pipelines as separate user-code images exposed over gRPC; this mirrors “Airflow triggers jobs in containers” but is simpler to operate.
 - **Object-store-native analytics**: keep DuckDB external views over Parquet, or migrate gold/silver to Iceberg/Delta for stronger table semantics.
 - **Metrics and alerting**: Prometheus/Grafana dashboards; alerts on critical data issues (e.g., empty candles/belief snapshots).
 - **Lineage**: OpenLineage/Marquez if cross-system lineage becomes necessary.

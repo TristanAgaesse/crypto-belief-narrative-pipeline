@@ -3,7 +3,8 @@ DATE ?= 2026-05-06
 
 .PHONY: setup lint format test minio-up minio-down ensure-bucket check-config run-sample \
 	smoke-test-apis fetch-live run-live build-gold dq detect-data-issues dagster-dev \
-	dagster-materialize-sample generate-reports full-sample
+	dagster-materialize-sample generate-reports full-sample \
+	docker-build docker-up docker-down dagster-up dagster-down dagster-ensure-bucket
 
 setup:
 	python3.11 -m venv .venv
@@ -25,6 +26,27 @@ minio-up:
 
 minio-down:
 	docker compose down
+
+docker-build:
+	docker compose build \
+		--build-arg BUILD_DATE="$$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+		--build-arg VCS_REF="$$(git rev-parse --short HEAD)" \
+		--build-arg VERSION="$$(python -c 'import tomllib;print(tomllib.load(open(\"pyproject.toml\",\"rb\"))[\"project\"][\"version\"])')" \
+		dagster-user-code-crypto-belief
+
+docker-up: docker-build
+	docker compose up -d
+
+docker-down:
+	docker compose down
+
+dagster-up: docker-up
+	@echo "Dagster UI: http://localhost:3000"
+
+dagster-down: docker-down
+
+dagster-ensure-bucket:
+	docker compose exec -T dagster-daemon python -m crypto_belief_pipeline.cli ensure-bucket
 
 ensure-bucket:
 	. .venv/bin/activate && python -m crypto_belief_pipeline.cli ensure-bucket

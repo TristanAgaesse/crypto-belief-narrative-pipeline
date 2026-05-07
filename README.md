@@ -14,6 +14,11 @@ This project is **research infrastructure**, not an execution system: it is desi
 - **Testability**: core path/config logic is covered by unit tests without requiring Docker.
 
 ## Quickstart (Step 1–2)
+### Prereqs
+- **Python**: 3.11+
+- **Docker Desktop**: for MinIO + Dockerized Dagster
+
+### Local (venv) install
 From the project root:
 
 ```bash
@@ -30,6 +35,19 @@ make minio-up
 make ensure-bucket
 make check-config
 ```
+
+### Dockerized Dagster install (always-on scheduler)
+
+This is the “turnkey local platform” path (MinIO + Postgres + Dagster webserver/daemon + user-code gRPC):
+
+```bash
+cp .env.example .env
+make dagster-up
+make dagster-ensure-bucket
+```
+
+- Dagster UI: `http://localhost:3000`
+- MinIO console: `http://localhost:9001`
 
 Run the sample pipeline (no live APIs):
 
@@ -159,6 +177,53 @@ make dagster-dev
 ```
 
 Then open `http://localhost:3000`.
+
+### Dockerized Dagster (always-on scheduler)
+
+This repo supports a local “mini platform” that looks like a simplified Airflow-on-Kubernetes pattern:
+- **Control plane (always on)**: Dagster webserver + Dagster daemon + Postgres metadata DB
+- **User code**: your pipeline packaged as a Docker image and exposed over gRPC to the control plane
+- **Execution**: each run executes in its own short-lived container (DockerRunLauncher), which is a good stand-in for “run a container in Kubernetes” without bringing K8s into local dev
+
+Bring everything up:
+
+```bash
+docker compose up -d --build
+```
+
+- Dagster UI: `http://localhost:3000`
+- MinIO console: `http://localhost:9001`
+
+#### Images (what they contain)
+
+- **`crypto-belief-pipeline:local`**:
+  - Python package `crypto_belief_pipeline` (collectors, transforms, assets, DQ, feature builds)
+  - Dagster entrypoints: `dagster-webserver`, `dagster-daemon`, `dagster api grpc`
+  - Used for:
+    - `dagster-user-code-crypto-belief` (gRPC code location)
+    - `dagster-webserver` + `dagster-daemon` (control plane)
+    - ephemeral “run containers” launched per run by DockerRunLauncher
+
+- **`postgres:16`**:
+  - Dagster run/event/schedule storage (durable state so the daemon can schedule continuously)
+
+- **`minio/minio:latest`**:
+  - Local S3-compatible object storage used by the pipeline lake
+
+#### What makes this scalable + flexible (multi-pipeline)
+
+This setup scales by **adding more user-code images**, not by multiplying the control plane:
+- Add a new pipeline by creating another `dagster-user-code-<name>` service built from its own image.
+- Add another `grpc_server` entry in `dagster/workspace.yaml`.
+- The same Dagster webserver/daemon instance can discover and orchestrate multiple code locations.
+
+This matches “central scheduler triggers containerized jobs” while remaining local and simple.
+
+#### Environment variables (not committed)
+
+- `.env` is **gitignored** and can contain local credentials/overrides.
+- `.env.example` is the committed template.
+- In Docker, services read env vars from your local environment/`.env` at runtime; nothing secret is baked into images.
 
 Materialize via Dagster CLI (example: sample partition):
 
