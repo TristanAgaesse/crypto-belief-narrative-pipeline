@@ -18,6 +18,41 @@ from crypto_belief_pipeline.transform.run_raw_to_silver import run_raw_to_silver
 from crypto_belief_pipeline.transform.run_sample_pipeline import run_sample_pipeline
 
 app = typer.Typer(add_completion=False)
+pipeline_app = typer.Typer(help="Run end-to-end pipeline flows.")
+dagster_app = typer.Typer(help="Thin wrappers around Dagster entrypoints.")
+dq_app = typer.Typer(help="Data quality (Soda + DuckDB).")
+issues_app = typer.Typer(help="Domain-specific data issue detection.")
+
+app.add_typer(pipeline_app, name="pipeline")
+app.add_typer(dagster_app, name="dagster")
+app.add_typer(dq_app, name="dq")
+app.add_typer(issues_app, name="issues")
+
+_KNOWN_SOURCES = {"polymarket", "binance", "gdelt"}
+
+
+def _parse_sources(value: str | None) -> set[str]:
+    if value is None:
+        return set(_KNOWN_SOURCES)
+    text = value.strip().lower()
+    if not text or text == "all":
+        return set(_KNOWN_SOURCES)
+    parts = {p.strip() for p in text.split(",") if p.strip()}
+    unknown = sorted(parts - _KNOWN_SOURCES)
+    if unknown:
+        raise typer.BadParameter(
+            f"Unknown sources: {unknown}. Expected one of {sorted(_KNOWN_SOURCES)}"
+        )
+    return parts
+
+
+def _run_date(dt: str | None) -> str:
+    return dt or date.today().isoformat()
+
+
+def _ensure_bucket() -> None:
+    s = get_settings()
+    ensure_bucket_exists(s.s3_bucket, settings=s)
 
 
 @app.command("check-config")
@@ -54,6 +89,67 @@ def run_sample(
     written = run_sample_pipeline(run_date=dt)
     for name in sorted(written.keys()):
         typer.echo(f"{name} {written[name]}")
+
+
+@pipeline_app.command("run")
+def pipeline_run(
+    dt: str | None = typer.Option(None, "--date", help="YYYY-MM-DD (default: today UTC)"),
+    mode: str = typer.Option("live", "--mode", help="live|sample"),
+    sources: str = typer.Option(
+        "all",
+        "--sources",
+        help="Comma-separated sources for live mode: polymarket,binance,gdelt (or 'all').",
+    ),
+    skip_gold: bool = typer.Option(False, "--skip-gold", help="Skip silver->gold build step."),
+    skip_dq: bool = typer.Option(False, "--skip-dq", help="Skip Soda data-quality checks."),
+    skip_issues: bool = typer.Option(
+        False, "--skip-issues", help="Skip issue detection + reports."
+    ),
+) -> None:
+    """Run an operator-friendly end-to-end pipeline for one run date."""
+
+    run_date = _run_date(dt)
+    _ensure_bucket()
+
+    if mode not in {"live", "sample"}:
+        raise typer.BadParameter("mode must be one of: live, sample")
+
+    if mode == "sample":
+        written = run_sample_pipeline(run_date=run_date)
+        typer.echo(json.dumps(written, indent=2, sort_keys=True))
+    else:
+        src = _parse_sources(sources)
+        raw_written = run_live_collectors(
+            run_date=run_date,
+            collect_polymarket=("polymarket" in src),
+            collect_binance=("binance" in src),
+            collect_gdelt=("gdelt" in src),
+        )
+        silver_written = run_raw_to_silver(
+            run_date=run_date,
+            polymarket_markets_key=raw_written.get("raw_polymarket_markets")
+            if "polymarket" in src
+            else None,
+            polymarket_prices_key=raw_written.get("raw_polymarket_prices")
+            if "polymarket" in src
+            else None,
+            binance_klines_key=raw_written.get("raw_binance_klines") if "binance" in src else None,
+            gdelt_timeline_key=raw_written.get("raw_gdelt_timeline") if "gdelt" in src else None,
+        )
+        typer.echo(json.dumps({**raw_written, **silver_written}, indent=2, sort_keys=True))
+
+    if not skip_gold:
+        gold_written = build_gold_tables(run_date=run_date)
+        typer.echo(json.dumps(gold_written, indent=2, sort_keys=True))
+
+    if not skip_dq:
+        summary = run_soda_checks(run_date=run_date)
+        typer.echo(json.dumps(summary, indent=2, sort_keys=True))
+
+    if not skip_issues:
+        issues = detect_data_issues(run_date=run_date)
+        paths = write_data_issues_reports(issues)
+        typer.echo(json.dumps({"issues": len(issues), "paths": paths}, indent=2, sort_keys=True))
 
 
 @app.command("smoke-test-apis")
@@ -115,36 +211,20 @@ def fetch_live(
     dt: str = typer.Option(..., "--date", help="YYYY-MM-DD"),
     polymarket_limit: int = typer.Option(100, "--polymarket-limit"),
     binance_limit: int = typer.Option(120, "--binance-limit"),
-    skip_polymarket: bool = typer.Option(False, "--skip-polymarket"),
-    skip_binance: bool = typer.Option(False, "--skip-binance"),
-    skip_gdelt: bool = typer.Option(False, "--skip-gdelt"),
+    sources: str = typer.Option(
+        "all",
+        "--sources",
+        help="Comma-separated list of sources to collect: polymarket,binance,gdelt (or 'all').",
+    ),
 ) -> None:
+    src = _parse_sources(sources)
     written = run_live_collectors(
         run_date=dt,
-        collect_polymarket=not skip_polymarket,
-        collect_binance=not skip_binance,
-        collect_gdelt=not skip_gdelt,
+        collect_polymarket=("polymarket" in src),
+        collect_binance=("binance" in src),
+        collect_gdelt=("gdelt" in src),
         binance_limit=binance_limit,
         polymarket_limit=polymarket_limit,
-    )
-    for name in sorted(written.keys()):
-        typer.echo(f"{name} {written[name]}")
-
-
-@app.command("raw-to-silver")
-def raw_to_silver(
-    dt: str = typer.Option(..., "--date", help="YYYY-MM-DD"),
-    polymarket_markets_key: str = typer.Option(..., "--polymarket-markets-key"),
-    polymarket_prices_key: str = typer.Option(..., "--polymarket-prices-key"),
-    binance_klines_key: str = typer.Option(..., "--binance-klines-key"),
-    gdelt_timeline_key: str = typer.Option(..., "--gdelt-timeline-key"),
-) -> None:
-    written = run_raw_to_silver(
-        run_date=dt,
-        polymarket_markets_key=polymarket_markets_key,
-        polymarket_prices_key=polymarket_prices_key,
-        binance_klines_key=binance_klines_key,
-        gdelt_timeline_key=gdelt_timeline_key,
     )
     for name in sorted(written.keys()):
         typer.echo(f"{name} {written[name]}")
@@ -155,32 +235,34 @@ def run_live(
     dt: str = typer.Option(..., "--date", help="YYYY-MM-DD"),
     polymarket_limit: int = typer.Option(100, "--polymarket-limit"),
     binance_limit: int = typer.Option(120, "--binance-limit"),
+    sources: str = typer.Option(
+        "all",
+        "--sources",
+        help="Comma-separated list of sources to collect: polymarket,binance,gdelt (or 'all').",
+    ),
 ) -> None:
-    s = get_settings()
-    ensure_bucket_exists(s.s3_bucket, settings=s)
+    _ensure_bucket()
 
+    src = _parse_sources(sources)
     raw_written = run_live_collectors(
         run_date=dt,
+        collect_polymarket=("polymarket" in src),
+        collect_binance=("binance" in src),
+        collect_gdelt=("gdelt" in src),
         binance_limit=binance_limit,
         polymarket_limit=polymarket_limit,
     )
 
-    pm_prefix = partition_path("raw", "provider=polymarket", dt)
-    bn_prefix = partition_path("raw", "provider=binance", dt)
-    gd_prefix = partition_path("raw", "provider=gdelt", dt)
-
     silver_written = run_raw_to_silver(
         run_date=dt,
-        polymarket_markets_key=raw_written.get(
-            "raw_polymarket_markets", f"{pm_prefix}/live_markets.jsonl"
+        polymarket_markets_key=raw_written.get("raw_polymarket_markets")
+        if "polymarket" in src
+        else None,
+        polymarket_prices_key=(
+            raw_written.get("raw_polymarket_prices") if "polymarket" in src else None
         ),
-        polymarket_prices_key=raw_written.get(
-            "raw_polymarket_prices", f"{pm_prefix}/live_prices.jsonl"
-        ),
-        binance_klines_key=raw_written.get("raw_binance_klines", f"{bn_prefix}/live_klines.jsonl"),
-        gdelt_timeline_key=raw_written.get(
-            "raw_gdelt_timeline", f"{gd_prefix}/live_timeline.jsonl"
-        ),
+        binance_klines_key=raw_written.get("raw_binance_klines") if "binance" in src else None,
+        gdelt_timeline_key=raw_written.get("raw_gdelt_timeline") if "gdelt" in src else None,
     )
 
     combined = {**raw_written, **silver_written}
@@ -202,6 +284,7 @@ def build_gold(
         typer.echo(f"{name} {written[name]}")
 
 
+@dq_app.command("run")
 @app.command("run-soda-checks")
 def cli_run_soda_checks(
     dt: str = typer.Option(..., "--date", help="YYYY-MM-DD"),
@@ -218,6 +301,7 @@ def cli_run_soda_checks(
     typer.echo(json.dumps(summary, indent=2, sort_keys=True))
 
 
+@issues_app.command("detect")
 @app.command("detect-data-issues")
 def cli_detect_data_issues(
     dt: str = typer.Option(..., "--date", help="YYYY-MM-DD"),
@@ -232,6 +316,13 @@ def cli_detect_data_issues(
     typer.echo(f"Wrote {paths['md']}")
     typer.echo(f"Wrote {paths['json']}")
     typer.echo(f"issues={len(issues)}")
+
+
+@dagster_app.command("dev")
+def dagster_dev() -> None:
+    """Print the module path to run `dagster dev` against."""
+
+    typer.echo("dagster dev -m crypto_belief_pipeline.orchestration.definitions")
 
 
 @app.command("generate-reports")

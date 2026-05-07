@@ -48,10 +48,10 @@ build-gold:
 	. .venv/bin/activate && python -m crypto_belief_pipeline.cli build-gold --date $${RUN_DATE:-$(DATE)}
 
 dq:
-	. .venv/bin/activate && python -m crypto_belief_pipeline.cli run-soda-checks --date $${RUN_DATE:-$(DATE)}
+	. .venv/bin/activate && python -m crypto_belief_pipeline.cli dq run --date $${RUN_DATE:-$(DATE)}
 
 detect-data-issues:
-	. .venv/bin/activate && python -m crypto_belief_pipeline.cli detect-data-issues --date $${RUN_DATE:-$(DATE)}
+	. .venv/bin/activate && python -m crypto_belief_pipeline.cli issues detect --date $${RUN_DATE:-$(DATE)}
 
 dagster-dev:
 	. .venv/bin/activate && dagster dev -m crypto_belief_pipeline.orchestration.definitions
