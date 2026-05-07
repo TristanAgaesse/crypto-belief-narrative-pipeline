@@ -15,15 +15,23 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install
+      - name: Install pinned dependencies
+        # Install the exact pinned environment from the canonical lockfile so CI
+        # has byte-for-byte reproducibility (runtime + dev tooling). The project
+        # itself is layered in editable mode with --no-deps so its open ranges
+        # in pyproject.toml don't override the locked versions.
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -r requirements.lock.txt
+          pip install --no-deps -e .
 
       - name: Ruff
         run: |
           ruff check .
           ruff format --check .
 
+      - name: Mypy
+        run: mypy src/crypto_belief_pipeline
+
       - name: Pytest
-        run: pytest
+        run: pytest --cov=crypto_belief_pipeline --cov-report=term-missing --cov-fail-under=70
