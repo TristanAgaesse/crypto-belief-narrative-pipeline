@@ -1,0 +1,5 @@
+load_from:
+  - grpc_server:
+      host: dagster-user-code-crypto-belief
+      port: 4000
+      location_name: crypto_belief_pipeline
