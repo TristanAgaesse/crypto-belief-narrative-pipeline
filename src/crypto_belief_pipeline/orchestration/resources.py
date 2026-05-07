@@ -12,6 +12,13 @@ def resolve_run_date(partition_key: str | None) -> date:
     return datetime.now(UTC).date()
 
 
+def resolve_run_date_from_context(context) -> date:
+    """Like :func:`resolve_run_date`, but safe when the run is not partition-scoped."""
+
+    pk = context.partition_key if context.has_partition_key else None
+    return resolve_run_date(pk)
+
+
 @dataclass(frozen=True)
 class LakeKeys:
     """Standard lake keys emitted by the pipeline for one run_date partition."""

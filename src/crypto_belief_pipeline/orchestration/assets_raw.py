@@ -22,7 +22,7 @@ from crypto_belief_pipeline.orchestration._helpers import (
     _sample_guardrails,
     partitions_def,
 )
-from crypto_belief_pipeline.orchestration.resources import resolve_run_date
+from crypto_belief_pipeline.orchestration.resources import resolve_run_date_from_context
 from crypto_belief_pipeline.orchestration.windows import compute_window
 from crypto_belief_pipeline.sample_data import load_sample_jsonl
 from crypto_belief_pipeline.state.ingestion_cursors import (
@@ -40,7 +40,7 @@ from dagster import MetadataValue, asset
 def raw_sample_inputs(context) -> dict[str, str]:
     """Write sample JSONL into the lake under raw/ (partitioned by run_date)."""
 
-    run_date = resolve_run_date(context.partition_key)
+    run_date = resolve_run_date_from_context(context)
     pm_markets = load_sample_jsonl("polymarket_markets_sample.jsonl")
     pm_prices = load_sample_jsonl("polymarket_prices_sample.jsonl")
     bn_klines = load_sample_jsonl("binance_klines_sample.jsonl")
@@ -81,7 +81,7 @@ def raw_sample_inputs(context) -> dict[str, str]:
 def raw_polymarket(context) -> dict[str, str]:
     """Collect Polymarket markets + prices and write raw JSONL to the lake."""
 
-    run_date = resolve_run_date(context.partition_key)
+    run_date = resolve_run_date_from_context(context)
     tick_now = _partition_tick_now_utc(run_date)
     batch_id = generate_batch_id(tick_now)
     parts = split_batch_parts(batch_id)
@@ -157,7 +157,7 @@ def raw_polymarket(context) -> dict[str, str]:
 def raw_binance(context) -> dict[str, str]:
     """Collect recent Binance klines and write raw JSONL to the lake."""
 
-    run_date = resolve_run_date(context.partition_key)
+    run_date = resolve_run_date_from_context(context)
     tick_now = _partition_tick_now_utc(run_date)
     batch_id = generate_batch_id(tick_now)
     parts = split_batch_parts(batch_id)
@@ -214,7 +214,7 @@ def raw_binance(context) -> dict[str, str]:
 def raw_gdelt(context) -> dict[str, str]:
     """Collect GDELT TimelineVol (optional; may produce zero rows without failing)."""
 
-    run_date = resolve_run_date(context.partition_key)
+    run_date = resolve_run_date_from_context(context)
     tick_now = _partition_tick_now_utc(run_date)
     batch_id = generate_batch_id(tick_now)
     parts = split_batch_parts(batch_id)

@@ -20,7 +20,7 @@ from crypto_belief_pipeline.orchestration.assets_transform import (
     silver_crypto_candles_1m,
     silver_narrative_counts,
 )
-from crypto_belief_pipeline.orchestration.resources import resolve_run_date
+from crypto_belief_pipeline.orchestration.resources import resolve_run_date_from_context
 from crypto_belief_pipeline.quality.issues import detect_data_issues, write_data_issues_reports
 from crypto_belief_pipeline.reports.index_md import render_reports_index_md
 from dagster import (
@@ -48,7 +48,7 @@ def gold_tables(
 ) -> tuple[Output[dict[str, str]], Output[dict[str, str]]]:
     """Build gold tables once and expose both outputs as distinct assets."""
 
-    run_date = resolve_run_date(context.partition_key)
+    run_date = resolve_run_date_from_context(context)
     written = build_gold_tables(
         run_date=run_date.isoformat(),
         belief_key=silver_belief_price_snapshots["silver_belief_price_snapshots"],
@@ -88,7 +88,7 @@ def gold_tables(
     description="Run Soda Core checks against DuckDB external Parquet views for this partition.",
 )
 def soda_data_quality(context) -> dict[str, Any]:
-    run_date = resolve_run_date(context.partition_key)
+    run_date = resolve_run_date_from_context(context)
     summary = run_soda_checks(run_date=run_date.isoformat())
     context.add_output_metadata(
         {
@@ -111,7 +111,7 @@ def soda_data_quality(context) -> dict[str, Any]:
     description="Detect domain-specific pipeline/data issues and write markdown/json reports.",
 )
 def data_issues(context) -> list[dict]:
-    run_date = resolve_run_date(context.partition_key)
+    run_date = resolve_run_date_from_context(context)
     issues = detect_data_issues(run_date=run_date.isoformat())
     paths = write_data_issues_reports(issues)
     context.add_output_metadata(
@@ -134,7 +134,7 @@ def markdown_reports(
 ) -> dict[str, str]:
     """Produce a small index markdown that links to quality + issues outputs."""
 
-    run_date = resolve_run_date(context.partition_key)
+    run_date = resolve_run_date_from_context(context)
     reports_dir = Path("reports")
     reports_dir.mkdir(parents=True, exist_ok=True)
     index_path = reports_dir / "index.md"

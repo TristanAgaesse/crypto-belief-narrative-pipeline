@@ -27,7 +27,7 @@ from crypto_belief_pipeline.orchestration.assets_raw import (
     raw_gdelt,
     raw_polymarket,
 )
-from crypto_belief_pipeline.orchestration.resources import resolve_run_date
+from crypto_belief_pipeline.orchestration.resources import resolve_run_date_from_context
 from crypto_belief_pipeline.transform.normalize_binance import (
     normalize_klines,
     to_crypto_candles_1m,
@@ -47,7 +47,7 @@ from dagster import MetadataValue, asset
     description="Normalize Polymarket raw JSONL into bronze Parquet (typed, source-shaped).",
 )
 def bronze_polymarket(context, raw_polymarket: dict[str, str]) -> dict[str, str]:
-    run_date = resolve_run_date(context.partition_key)
+    run_date = resolve_run_date_from_context(context)
     markets_key = raw_polymarket["raw_polymarket_markets"]
     prices_key = raw_polymarket["raw_polymarket_prices"]
     source_batch_id = raw_polymarket.get("source_batch_id") or ""
@@ -102,7 +102,7 @@ def bronze_polymarket(context, raw_polymarket: dict[str, str]) -> dict[str, str]
     description="Normalize Binance raw JSONL into bronze Parquet (typed, source-shaped).",
 )
 def bronze_binance(context, raw_binance: dict[str, str]) -> dict[str, str]:
-    run_date = resolve_run_date(context.partition_key)
+    run_date = resolve_run_date_from_context(context)
     chosen = raw_binance["raw_binance_klines"]
     source_batch_id = raw_binance.get("source_batch_id") or ""
     source_window_start = raw_binance.get("source_window_start") or ""
@@ -140,7 +140,7 @@ def bronze_binance(context, raw_binance: dict[str, str]) -> dict[str, str]:
     description="Normalize GDELT raw JSONL into bronze Parquet (typed, source-shaped).",
 )
 def bronze_gdelt(context, raw_gdelt: dict[str, str]) -> dict[str, str]:
-    run_date = resolve_run_date(context.partition_key)
+    run_date = resolve_run_date_from_context(context)
     chosen = raw_gdelt["raw_gdelt_timeline"]
     source_batch_id = raw_gdelt.get("source_batch_id") or ""
     source_window_start = raw_gdelt.get("source_window_start") or ""
@@ -180,7 +180,7 @@ def bronze_gdelt(context, raw_gdelt: dict[str, str]) -> dict[str, str]:
     description="Build silver belief_price_snapshots from bronze Polymarket prices.",
 )
 def silver_belief_price_snapshots(context, bronze_polymarket: dict[str, str]) -> dict[str, str]:
-    run_date = resolve_run_date(context.partition_key)
+    run_date = resolve_run_date_from_context(context)
     prices_df = read_parquet_df(bronze_polymarket["bronze_polymarket_prices"])
     belief_df = to_belief_price_snapshots(prices_df)
     belief_df = _with_lineage(belief_df, bronze_polymarket)
@@ -214,7 +214,7 @@ def silver_belief_price_snapshots(context, bronze_polymarket: dict[str, str]) ->
     description="Build silver crypto_candles_1m from bronze Binance klines.",
 )
 def silver_crypto_candles_1m(context, bronze_binance: dict[str, str]) -> dict[str, str]:
-    run_date = resolve_run_date(context.partition_key)
+    run_date = resolve_run_date_from_context(context)
     klines_df = read_parquet_df(bronze_binance["bronze_binance_klines"])
     candles_df = to_crypto_candles_1m(klines_df)
     candles_df = _with_lineage(candles_df, bronze_binance)
@@ -246,7 +246,7 @@ def silver_crypto_candles_1m(context, bronze_binance: dict[str, str]) -> dict[st
     description="Build silver narrative_counts from bronze GDELT timeline series (may be empty).",
 )
 def silver_narrative_counts(context, bronze_gdelt: dict[str, str]) -> dict[str, str]:
-    run_date = resolve_run_date(context.partition_key)
+    run_date = resolve_run_date_from_context(context)
     timeline_df = read_parquet_df(bronze_gdelt["bronze_gdelt_timeline"])
     counts_df = to_narrative_counts(timeline_df)
     counts_df = _with_lineage(counts_df, bronze_gdelt)

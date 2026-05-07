@@ -20,7 +20,9 @@ from crypto_belief_pipeline.io_guardrails import resolve_sample_bucket
 from crypto_belief_pipeline.lake.read import LakeKeyNotFound, read_jsonl_records
 from dagster import DailyPartitionsDefinition
 
-partitions_def = DailyPartitionsDefinition(start_date="2026-05-06")
+# end_offset=1 includes the in-progress UTC day; with 0 the "current" day is not a valid
+# partition key until the window ends, which breaks schedules and manual runs during that day.
+partitions_def = DailyPartitionsDefinition(start_date="2026-05-06", end_offset=1)
 
 
 def _partition_bounds_utc(run_date: date) -> tuple[datetime, datetime]:
