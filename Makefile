@@ -2,7 +2,7 @@ SHELL := /bin/bash
 DATE ?= 2026-05-06
 
 .PHONY: setup lint format test minio-up minio-down ensure-bucket check-config run-sample \
-	smoke-test-apis fetch-live run-live
+	smoke-test-apis fetch-live run-live build-gold
 
 setup:
 	python3.11 -m venv .venv
@@ -42,3 +42,6 @@ fetch-live:
 
 run-live: ensure-bucket
 	. .venv/bin/activate && python -m crypto_belief_pipeline.cli run-live --date $${RUN_DATE:-$(DATE)}
+
+build-gold:
+	. .venv/bin/activate && python -m crypto_belief_pipeline.cli build-gold --date $${RUN_DATE:-$(DATE)}

@@ -6,6 +6,8 @@ import typer
 
 from crypto_belief_pipeline.collectors.run_live_collectors import run_live_collectors
 from crypto_belief_pipeline.config import get_settings
+from crypto_belief_pipeline.features.build_gold import build_gold_tables
+from crypto_belief_pipeline.features.market_tags import DEFAULT_MARKET_TAGS_PATH
 from crypto_belief_pipeline.lake.paths import partition_path
 from crypto_belief_pipeline.lake.s3 import ensure_bucket_exists
 from crypto_belief_pipeline.transform.run_raw_to_silver import run_raw_to_silver
@@ -180,6 +182,20 @@ def run_live(
     combined = {**raw_written, **silver_written}
     for name in sorted(combined.keys()):
         typer.echo(f"{name} {combined[name]}")
+
+
+@app.command("build-gold")
+def build_gold(
+    dt: str = typer.Option(..., "--date", help="YYYY-MM-DD"),
+    market_tags_path: str = typer.Option(
+        DEFAULT_MARKET_TAGS_PATH,
+        "--market-tags-path",
+        help="Path to manually curated market tags CSV.",
+    ),
+) -> None:
+    written = build_gold_tables(run_date=dt, market_tags_path=market_tags_path)
+    for name in sorted(written.keys()):
+        typer.echo(f"{name} {written[name]}")
 
 
 def main() -> None:
