@@ -12,6 +12,7 @@ from crypto_belief_pipeline.config import get_settings
 from crypto_belief_pipeline.dq.soda import run_soda_checks
 from crypto_belief_pipeline.features.build_gold import build_gold_tables
 from crypto_belief_pipeline.features.market_tags import DEFAULT_MARKET_TAGS_PATH
+from crypto_belief_pipeline.io_guardrails import SampleConfigError, resolve_sample_bucket
 from crypto_belief_pipeline.lake.compaction import (
     compact_daily_from_hourly,
     compact_hourly_microbatches,
@@ -24,6 +25,7 @@ from crypto_belief_pipeline.reports.index_md import (
     load_soda_passed_from_disk,
     render_reports_index_md,
 )
+from crypto_belief_pipeline.transform.run_live_pipeline import run_live_pipeline
 from crypto_belief_pipeline.transform.run_sample_pipeline import run_sample_pipeline
 
 app = typer.Typer(add_completion=False)
@@ -64,6 +66,21 @@ def _ensure_bucket() -> None:
     ensure_bucket_exists(s.s3_bucket, settings=s)
 
 
+def _ensure_sample_bucket() -> str:
+    """Validate sample config and ensure the dedicated sample bucket exists.
+
+    Delegates the policy check to :func:`resolve_sample_bucket` so CLI, sample
+    runner, and Dagster helpers cannot drift in what they consider safe.
+    """
+
+    try:
+        sample_bucket = resolve_sample_bucket()
+    except SampleConfigError as e:
+        raise typer.BadParameter(str(e)) from e
+    ensure_bucket_exists(sample_bucket, settings=get_settings())
+    return sample_bucket
+
+
 @app.command("check-config")
 def check_config() -> None:
     s = get_settings()
@@ -100,6 +117,12 @@ def run_sample(
         typer.echo(f"{name} {written[name]}")
 
 
+# Sources required to produce a complete gold/DQ/issues run end-to-end.
+# Belief silver requires polymarket, candles requires binance, narrative requires gdelt;
+# all three feed the gold join in `build_gold_tables`.
+_GOLD_REQUIRED_SOURCES = frozenset(_KNOWN_SOURCES)
+
+
 @pipeline_app.command("run")
 def pipeline_run(
     dt: str | None = typer.Option(None, "--date", help="YYYY-MM-DD (default: today UTC)"),
@@ -118,16 +141,45 @@ def pipeline_run(
     """Run an operator-friendly end-to-end pipeline for one run date."""
 
     run_date = _run_date(dt)
-    _ensure_bucket()
 
     if mode not in {"live", "sample"}:
         raise typer.BadParameter("mode must be one of: live, sample")
 
+    silver_keys: dict[str, str] = {}
+    target_bucket: str | None = None
+
     if mode == "sample":
+        # Sample mode never writes to the live bucket; bucket isolation lives at
+        # the bucket level (not as a key prefix). We still run the live-bucket
+        # check so operators see early if both buckets are misconfigured.
+        target_bucket = _ensure_sample_bucket()
         written = run_sample_pipeline(run_date=run_date)
         typer.echo(json.dumps(written, indent=2, sort_keys=True))
+        # Silver lives in the sample bucket with the canonical key layout, so we
+        # only need to forward the keys; the bucket override is what routes I/O.
+        silver_keys = {
+            "belief_key": written["silver_belief_price_snapshots"],
+            "candles_key": written["silver_crypto_candles_1m"],
+            "narrative_key": written["silver_narrative_counts"],
+        }
     else:
         src = _parse_sources(sources)
+
+        # Partial-source live runs cannot satisfy gold's required silver inputs.
+        # Without this guard, downstream stages would silently fall back to
+        # default partition keys and may read stale data from a previous run.
+        downstream_requested = not (skip_gold and skip_dq and skip_issues)
+        if downstream_requested and src != _GOLD_REQUIRED_SOURCES:
+            missing = sorted(_GOLD_REQUIRED_SOURCES - src)
+            raise typer.BadParameter(
+                "Live partial-source runs cannot produce gold/DQ/issues. "
+                f"Missing required sources: {missing}. "
+                "Either re-run with --sources all (or omit --sources), "
+                "or pass --skip-gold --skip-dq --skip-issues to limit the run "
+                "to raw + bronze + silver."
+            )
+
+        _ensure_bucket()
         raw_written = run_live_collectors(
             run_date=run_date,
             collect_polymarket=("polymarket" in src),
@@ -136,16 +188,38 @@ def pipeline_run(
         )
         typer.echo(json.dumps(raw_written, indent=2, sort_keys=True))
 
+        # Normalize selected sources only. Unselected sources are explicitly skipped so we
+        # never fall back to stale default raw keys from a previous run.
+        normalized = run_live_pipeline(
+            run_date=run_date,
+            sources=src,
+            raw_polymarket_markets_key=raw_written.get("raw_polymarket_markets"),
+            raw_polymarket_prices_key=raw_written.get("raw_polymarket_prices"),
+            raw_binance_klines_key=raw_written.get("raw_binance_klines"),
+            raw_gdelt_timeline_key=raw_written.get("raw_gdelt_timeline"),
+        )
+        typer.echo(json.dumps(normalized, indent=2, sort_keys=True))
+
+        # Thread silver keys explicitly into downstream stages so they never
+        # reach back to default partition keys (which is what introduced the
+        # stale-mix risk for partial-source runs).
+        if downstream_requested:
+            silver_keys = {
+                "belief_key": normalized["silver_belief_price_snapshots"],
+                "candles_key": normalized["silver_crypto_candles_1m"],
+                "narrative_key": normalized["silver_narrative_counts"],
+            }
+
     if not skip_gold:
-        gold_written = build_gold_tables(run_date=run_date)
+        gold_written = build_gold_tables(run_date=run_date, bucket=target_bucket, **silver_keys)
         typer.echo(json.dumps(gold_written, indent=2, sort_keys=True))
 
     if not skip_dq:
-        summary = run_soda_checks(run_date=run_date)
+        summary = run_soda_checks(run_date=run_date, bucket=target_bucket)
         typer.echo(json.dumps(summary, indent=2, sort_keys=True))
 
     if not skip_issues:
-        issues = detect_data_issues(run_date=run_date)
+        issues = detect_data_issues(run_date=run_date, bucket=target_bucket)
         paths = write_data_issues_reports(issues)
         typer.echo(json.dumps({"issues": len(issues), "paths": paths}, indent=2, sort_keys=True))
 
