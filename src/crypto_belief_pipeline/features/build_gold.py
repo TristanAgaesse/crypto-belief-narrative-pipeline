@@ -24,6 +24,22 @@ from crypto_belief_pipeline.lake.read import read_parquet_df
 from crypto_belief_pipeline.lake.write import write_parquet_df
 
 
+def _normalize_event_time_utc(df: pl.DataFrame) -> pl.DataFrame:
+    """Ensure event_time is consistently timezone-aware UTC for joins.
+
+    Live Parquet inputs can yield tz-aware datetimes while some transforms emit tz-naive
+    datetimes. Polars requires join keys to match exactly.
+    """
+
+    if "event_time" not in df.columns:
+        return df
+    dtype = df.schema.get("event_time")
+    tz = getattr(dtype, "time_zone", None)
+    if tz is None:
+        return df.with_columns(pl.col("event_time").dt.replace_time_zone("UTC"))
+    return df.with_columns(pl.col("event_time").dt.convert_time_zone("UTC"))
+
+
 def _default_silver_keys(run_date: date | str) -> tuple[str, str, str]:
     belief_prefix = partition_path("silver", "belief_price_snapshots", run_date)
     candles_prefix = partition_path("silver", "crypto_candles_1m", run_date)
@@ -71,6 +87,10 @@ def build_gold_tables(
     belief_features = build_belief_features(belief_silver, tags)
     narrative_features = build_narrative_features(narrative_silver)
     price_features = build_price_features(candles_silver)
+
+    belief_features = _normalize_event_time_utc(belief_features)
+    narrative_features = _normalize_event_time_utc(narrative_features)
+    price_features = _normalize_event_time_utc(price_features)
 
     joined = belief_features.join(
         narrative_features, on=["event_time", "narrative"], how="left"
