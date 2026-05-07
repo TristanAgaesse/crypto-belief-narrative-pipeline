@@ -7,6 +7,53 @@ If (a) prediction markets reprice beliefs, and (b) narratives accelerate attenti
 
 This project is **research infrastructure**, not an execution system: it is designed to make data collection, storage, and repeatable experiments easy and auditable.
 
+## Reviewer quick path (deterministic, no live APIs)
+
+If you're evaluating this submission, run **only these commands**:
+
+```bash
+cp .env.example .env
+make setup
+make lint
+make test
+
+make minio-up
+make ensure-bucket
+
+# One command runs sample → silver → gold → DQ → issues end-to-end.
+python -m crypto_belief_pipeline.cli pipeline run --date 2026-05-06 --mode sample
+```
+
+Expected artifacts:
+
+- MinIO lake — **dedicated sample bucket** (`crypto-belief-lake-sample` by default):
+  - `raw/...`, `bronze/...`, `silver/...`, `gold/...` (canonical layout, no key prefix)
+- Local filesystem reports:
+  - `reports/data_issues.md`, `reports/data_issues.json`
+  - `reports/soda_scan_summary.json`, `reports/soda_scan_output.txt`
+
+Sample mode is isolated by **bucket**, not by key prefix. The CLI auto-creates
+the configured `sample.sample_lake_bucket` (must differ from the live
+`S3_BUCKET`) so sample I/O can never land in the live lake.
+
+Other useful entry points:
+
+| Goal | Command |
+|---|---|
+| Run unit tests | `make test` |
+| Lint + typecheck | `make lint` |
+| Sample pipeline only (no DQ/issues) | `python -m crypto_belief_pipeline.cli pipeline run --mode sample --skip-dq --skip-issues` |
+| Live (real APIs) end-to-end | `python -m crypto_belief_pipeline.cli pipeline run --date $(date +%F) --mode live` |
+| Live, partial sources only (raw + bronze + silver) | `python -m crypto_belief_pipeline.cli pipeline run --date $(date +%F) --mode live --sources binance,polymarket --skip-gold --skip-dq --skip-issues` |
+| Always-on Dagster scheduler | `make dagster-up` then open `http://localhost:3000` |
+
+For deeper docs, see:
+[`docs/architecture.md`](docs/architecture.md),
+[`docs/reproducibility.md`](docs/reproducibility.md),
+[`docs/limitations.md`](docs/limitations.md),
+[`docs/productionization.md`](docs/productionization.md),
+[`docs/gold_features.md`](docs/gold_features.md).
+
 ## Why this is a data-infrastructure project
 - **Local-first lake**: MinIO provides an S3-compatible object store on your laptop for reproducible iteration.
 - **Schema + partitioning**: consistent dataset naming and date partitions.
@@ -27,6 +74,12 @@ make setup
 make lint
 make test
 ```
+
+Notes:
+- `make run-sample` writes to the **dedicated sample bucket** configured at
+  `sample.sample_lake_bucket` in `config/runtime.yaml` (default
+  `crypto-belief-lake-sample`). Keys mirror the live layout
+  (`raw/...`, `bronze/...`, `silver/...`, `gold/...`).
 
 Start MinIO and create the lake bucket:
 
@@ -115,12 +168,14 @@ Fetch live raw data for a date and write JSONL to the lake:
 RUN_DATE=$(date +%F) make fetch-live
 ```
 
-Run the full live pipeline (ensure bucket, fetch live raw, transform to bronze + silver):
+Run the full live pipeline (ensure bucket, fetch live raw, normalize to bronze + silver, then gold + DQ + issues):
 
 ```bash
 make minio-up
 make ensure-bucket
-RUN_DATE=$(date +%F) make run-live
+RD=$(date +%F)
+. .venv/bin/activate
+python -m crypto_belief_pipeline.cli pipeline run --date "$RD" --mode live
 ```
 
 Operator-friendly one-shot pipeline (recommended CLI interface):
@@ -130,10 +185,36 @@ Operator-friendly one-shot pipeline (recommended CLI interface):
 make minio-up
 make ensure-bucket
 RD=$(date +%F)
-python -m crypto_belief_pipeline.cli pipeline run --date "$RD" --mode live --sources polymarket,binance
+python -m crypto_belief_pipeline.cli pipeline run --date "$RD" --mode live --sources polymarket,binance --skip-gold --skip-dq --skip-issues
 ```
 
 The deterministic, network-free path (`make run-sample`) continues to work and is the recommended evaluation path. Live collection is optional — its purpose is to prove the same raw contracts work on real APIs.
+
+#### Partial-source semantics (`--sources`)
+
+`--sources` selects which collectors run **and** which raw inputs are normalized.
+Unselected sources are explicitly skipped — there is **no fallback** to default
+raw keys. This means `--sources binance` will never silently mix today's fresh
+Binance raw with yesterday's stale Polymarket raw. The result includes
+`__sources_processed__` and `__sources_skipped__` for observability.
+
+Gold (and the downstream DQ + issues stages) requires all three sources
+(polymarket + binance + gdelt) to produce a complete training table. To
+guarantee operators never silently consume stale silver from skipped sources,
+`pipeline run --mode live` rejects partial `--sources` unless
+`--skip-gold --skip-dq --skip-issues` are all passed. For full end-to-end
+runs use `--sources all` (the default) or omit `--sources` entirely.
+
+#### DQ over microbatch silver
+
+`dq run` and `issues detect` resolve silver partitions using a layout-agnostic
+glob (`silver/<dataset>/date=YYYY-MM-DD/**/*.parquet`). Both layouts work
+without configuration:
+
+- CLI / sample / live live runs write `silver/<dataset>/date=.../data.parquet`.
+- Dagster microbatch assets write `silver/<dataset>/date=.../hour=HH/batch_id=*.parquet`.
+
+Gold remains a single canonical `data.parquet` per partition.
 
 ### Live raw keys
 
@@ -237,7 +318,7 @@ dagster asset materialize -m crypto_belief_pipeline.orchestration.definitions \
 
 `incremental_sample_job` includes **live** raw collector assets as upstream dependencies of bronze/silver (`raw_polymarket`, `raw_binance`, `raw_gdelt`). It is **not** a fully offline path. For deterministic offline sample data + gold + DQ, use `make full-sample` or `python -m crypto_belief_pipeline.cli pipeline run --mode sample`.
 
-To materialize only deterministic sample raw JSONL under the configured sample prefix:
+To materialize only deterministic sample raw JSONL into the configured sample bucket:
 
 ```bash
 dagster asset materialize -m crypto_belief_pipeline.orchestration.definitions \
@@ -280,6 +361,7 @@ Notes:
 - **`live_signals`**: filtered subset where `is_candidate_event` is true (`belief_shock_abs_1h >= 0.08`, positive underreaction score, confidence `>= 0.6`, relevance medium or high). Use this for low-latency monitoring and signal exploration.
 
 For definitions, interpretation, and expected ranges, see [`docs/gold_features.md`](docs/gold_features.md).
+For a deterministic evaluation recipe, see [`docs/reproducibility.md`](docs/reproducibility.md).
 
 ### No-lookahead principle
 
