@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from dagster import ScheduleDefinition
-
 from crypto_belief_pipeline.orchestration.jobs import (
     binance_raw_1m_job,
     gdelt_raw_1h_job,
+    gold_live_signals_5m_job,
     incremental_live_job,
     label_maturation_1h_job,
     live_market_fast_job,
@@ -13,8 +12,8 @@ from crypto_belief_pipeline.orchestration.jobs import (
     reports_daily_job,
     silver_microbatch_5m_job,
     soda_60m_job,
-    gold_live_signals_5m_job,
 )
+from dagster import ScheduleDefinition
 
 live_market_fast_schedule = ScheduleDefinition(
     name="live_market_fast_schedule",

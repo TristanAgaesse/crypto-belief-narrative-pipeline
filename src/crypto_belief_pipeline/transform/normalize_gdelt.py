@@ -62,9 +62,8 @@ def normalize_timeline(records: list[dict]) -> pl.DataFrame:
         pl.lit(datetime.now(UTC).replace(microsecond=0)).alias("load_timestamp")
     )
 
-    bronze = (
-        bronze.sort(["timestamp", "narrative", "query", "source", "ingested_at"])
-        .unique(subset=["timestamp", "narrative", "query", "source"], keep="last")
+    bronze = bronze.sort(["timestamp", "narrative", "query", "source", "ingested_at"]).unique(
+        subset=["timestamp", "narrative", "query", "source"], keep="last"
     )
 
     return bronze.select(
@@ -102,7 +101,6 @@ def to_narrative_counts(bronze_timeline: pl.DataFrame) -> pl.DataFrame:
         "source",
         pl.lit(datetime.now(UTC).replace(microsecond=0)).alias("processed_at"),
     )
-    return (
-        silver.sort(["timestamp", "narrative", "query", "source"])
-        .unique(subset=["timestamp", "narrative", "query", "source"], keep="last")
+    return silver.sort(["timestamp", "narrative", "query", "source"]).unique(
+        subset=["timestamp", "narrative", "query", "source"], keep="last"
     )

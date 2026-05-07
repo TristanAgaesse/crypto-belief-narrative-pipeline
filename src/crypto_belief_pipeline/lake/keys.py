@@ -11,4 +11,3 @@ def full_s3_key(relative_key: str) -> str:
     if not prefix:
         return relative_key.lstrip("/")
     return f"{prefix}/{relative_key.lstrip('/')}"
-

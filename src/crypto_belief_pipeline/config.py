@@ -60,7 +60,7 @@ class RuntimeConfig(BaseModel):
 
 def _read_yaml(path: str) -> dict:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         return data if isinstance(data, dict) else {}
     except FileNotFoundError:

@@ -128,9 +128,8 @@ def normalize_price_snapshots(records: list[dict]) -> pl.DataFrame:
         pl.lit(datetime.now(UTC).replace(microsecond=0)).alias("load_timestamp")
     )
 
-    bronze = (
-        bronze.sort(["timestamp", "market_id", "outcome", "ingested_at"])
-        .unique(subset=["timestamp", "market_id", "outcome"], keep="last")
+    bronze = bronze.sort(["timestamp", "market_id", "outcome", "ingested_at"]).unique(
+        subset=["timestamp", "market_id", "outcome"], keep="last"
     )
 
     return bronze.select(
@@ -179,7 +178,6 @@ def to_belief_price_snapshots(bronze_prices: pl.DataFrame) -> pl.DataFrame:
         pl.col("volume"),
         pl.lit(datetime.now(UTC).replace(microsecond=0)).alias("processed_at"),
     )
-    return (
-        silver.sort(["timestamp", "market_id", "outcome"])
-        .unique(subset=["timestamp", "market_id", "outcome"], keep="last")
+    return silver.sort(["timestamp", "market_id", "outcome"]).unique(
+        subset=["timestamp", "market_id", "outcome"], keep="last"
     )

@@ -80,9 +80,8 @@ def normalize_klines(records: list[dict]) -> pl.DataFrame:
     )
 
     # Deterministic within-batch dedup (overlap/retries can produce duplicates).
-    bronze = (
-        bronze.sort(["timestamp", "symbol", "interval", "ingested_at"])
-        .unique(subset=["timestamp", "symbol", "interval"], keep="last")
+    bronze = bronze.sort(["timestamp", "symbol", "interval", "ingested_at"]).unique(
+        subset=["timestamp", "symbol", "interval"], keep="last"
     )
 
     return bronze.select(
@@ -135,7 +134,6 @@ def to_crypto_candles_1m(bronze_klines: pl.DataFrame) -> pl.DataFrame:
         pl.col("number_of_trades"),
         pl.lit(datetime.now(UTC).replace(microsecond=0)).alias("processed_at"),
     )
-    return (
-        silver.sort(["timestamp", "asset", "symbol"])
-        .unique(subset=["timestamp", "asset"], keep="last")
+    return silver.sort(["timestamp", "asset", "symbol"]).unique(
+        subset=["timestamp", "asset"], keep="last"
     )

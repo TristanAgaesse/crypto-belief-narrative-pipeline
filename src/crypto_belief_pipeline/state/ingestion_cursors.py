@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -11,7 +11,7 @@ from crypto_belief_pipeline.lake.s3 import get_s3_client
 
 
 def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 class IngestionCursor(BaseModel):
@@ -37,7 +37,8 @@ def read_cursor(source: str, key: str, bucket: str | None = None) -> IngestionCu
     obj_key = cursor_object_key(source, key)
     client = get_s3_client(settings=s)
     try:
-        obj = client.get_object(Bucket=b, Key=(f"{s.s3_prefix.strip('/')}/" if s.s3_prefix else "") + obj_key)
+        prefix = f"{s.s3_prefix.strip('/')}/" if s.s3_prefix else ""
+        obj = client.get_object(Bucket=b, Key=prefix + obj_key)
     except Exception:
         return None
     data = json.loads(obj["Body"].read().decode("utf-8"))
@@ -48,12 +49,10 @@ def write_cursor(cursor: IngestionCursor, bucket: str | None = None) -> str:
     s = get_settings()
     b = bucket or s.s3_bucket
     obj_key = cursor_object_key(cursor.source, cursor.key)
-    cursor = cursor.model_copy(
-        update={"last_successful_ingestion_time": cursor.last_successful_ingestion_time or _utc_now_iso()}
-    )
+    ingested = cursor.last_successful_ingestion_time or _utc_now_iso()
+    cursor = cursor.model_copy(update={"last_successful_ingestion_time": ingested})
     body = json.dumps(cursor.model_dump(), indent=2, sort_keys=True).encode("utf-8")
     client = get_s3_client(settings=s)
     full_key = (f"{s.s3_prefix.strip('/')}/" if s.s3_prefix else "") + obj_key
     client.put_object(Bucket=b, Key=full_key, Body=body, ContentType="application/json")
     return obj_key
-

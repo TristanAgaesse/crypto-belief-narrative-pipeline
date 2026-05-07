@@ -86,7 +86,10 @@ def compact_daily_from_hourly(
     dataset: str,
     run_date: str,
 ) -> CompactionResult | None:
-    """Compact hourly `.../{dataset}_compacted/date=.../hour=HH/data.parquet` to daily `data.parquet`."""
+    """Compact hourly compacted partitions to one daily `data.parquet`.
+
+    Input layout: ``.../{dataset}_compacted/date=.../hour=HH/data.parquet``.
+    """
 
     hourly_dataset = f"{dataset}_compacted"
     prefix = partition_path(layer, hourly_dataset, run_date)
@@ -98,4 +101,3 @@ def compact_daily_from_hourly(
     out_key = f"{partition_path(layer, hourly_dataset, run_date)}/data.parquet"
     write_parquet_df(df, out_key)
     return CompactionResult(input_files=len(keys), output_key=out_key)
-

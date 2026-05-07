@@ -59,4 +59,3 @@ def test_compute_window_bad_cursor_falls_back_to_default_start() -> None:
     assert w.end_time == datetime(2026, 5, 7, 12, 34, 0, tzinfo=UTC)
     assert w.start_time == datetime(2026, 5, 7, 12, 28, 0, tzinfo=UTC)
     assert w.start_time < w.end_time
-

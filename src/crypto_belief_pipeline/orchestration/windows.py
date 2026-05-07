@@ -52,4 +52,3 @@ def compute_window(
         start_time = end_time - cadence
 
     return Window(start_time=start_time, end_time=end_time)
-

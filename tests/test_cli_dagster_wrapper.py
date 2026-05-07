@@ -35,4 +35,3 @@ def test_dagster_materialize_builds_expected_command(monkeypatch) -> None:
             "2026-05-06",
         ]
     ]
-

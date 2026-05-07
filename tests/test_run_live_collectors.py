@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 
 import crypto_belief_pipeline.collectors.run_live_collectors as rlc
 

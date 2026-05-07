@@ -146,7 +146,14 @@ def test_extract_price_snapshots_skips_markets_with_no_price() -> None:
 
 
 def test_collect_polymarket_raw_filters_and_maps(monkeypatch) -> None:
-    def fake_fetch(limit: int, offset: int = 0, order=None, ascending=None, active: bool = True, closed: bool = False) -> list[dict]:
+    def fake_fetch(
+        limit: int,
+        offset: int = 0,
+        order=None,
+        ascending=None,
+        active: bool = True,
+        closed: bool = False,
+    ) -> list[dict]:
         # Return newest first when ordered by updatedAt descending.
         return [
             {
@@ -172,7 +179,12 @@ def test_collect_polymarket_raw_filters_and_maps(monkeypatch) -> None:
     monkeypatch.setattr(pm, "fetch_gamma_markets", fake_fetch)
     start = datetime(2026, 5, 6, 12, 0, tzinfo=UTC)
     end = start + timedelta(minutes=5)
-    markets, prices, meta = pm.collect_polymarket_raw(limit=5, keywords=["bitcoin"], start_time=start, end_time=end)
+    markets, prices, meta = pm.collect_polymarket_raw(
+        limit=5,
+        keywords=["bitcoin"],
+        start_time=start,
+        end_time=end,
+    )
     assert meta["source"] == "polymarket"
     assert len(markets) == 1
     assert markets[0]["market_id"] == "x"
@@ -194,12 +206,27 @@ def test_collect_polymarket_raw_stops_paging_when_pages_older_than_window(monkey
         # First page includes one market in-window and one market older than start_time.
         if offset == 0:
             return [
-                {"id": "in", "question": "Bitcoin?", "slug": "in", "updatedAt": "2026-05-06T12:04:00Z"},
-                {"id": "old", "question": "Bitcoin?", "slug": "old", "updatedAt": "2026-05-06T11:00:00Z"},
+                {
+                    "id": "in",
+                    "question": "Bitcoin?",
+                    "slug": "in",
+                    "updatedAt": "2026-05-06T12:04:00Z",
+                },
+                {
+                    "id": "old",
+                    "question": "Bitcoin?",
+                    "slug": "old",
+                    "updatedAt": "2026-05-06T11:00:00Z",
+                },
             ]
         # If paging didn't stop, we'd see this second page; we want to avoid it.
         return [
-            {"id": "older", "question": "Bitcoin?", "slug": "older", "updatedAt": "2026-05-06T10:00:00Z"}
+            {
+                "id": "older",
+                "question": "Bitcoin?",
+                "slug": "older",
+                "updatedAt": "2026-05-06T10:00:00Z",
+            }
         ]
 
     monkeypatch.setattr(pm, "fetch_gamma_markets", fake_fetch)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, date
+from datetime import UTC, date, datetime
 
 import pytest
 
@@ -26,4 +26,3 @@ def test_partition_tick_now_stays_within_partition_day(monkeypatch) -> None:
     assert tick.date().isoformat() == "2026-05-06"
     assert tick.hour == 23
     assert tick.minute == 59
-
