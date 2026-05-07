@@ -11,6 +11,111 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
       - minio_data:/data
+    networks:
+      - dagster
+
+  dagster-postgres:
+    image: postgres:16
+    container_name: crypto-belief-dagster-postgres
+    environment:
+      POSTGRES_USER: dagster
+      POSTGRES_PASSWORD: dagster
+      POSTGRES_DB: dagster
+    volumes:
+      - dagster_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dagster -d dagster"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - dagster
+
+  dagster-user-code-crypto-belief:
+    build:
+      context: .
+    image: crypto-belief-pipeline:local
+    container_name: crypto-belief-dagster-user-code
+    command:
+      [
+        "dagster",
+        "api",
+        "grpc",
+        "-m",
+        "crypto_belief_pipeline.orchestration.definitions",
+        "-h",
+        "0.0.0.0",
+        "-p",
+        "4000",
+      ]
+    environment:
+      DAGSTER_HOME: /opt/dagster/dagster_home
+      AWS_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-crypto-belief-lake}
+    networks:
+      - dagster
+
+  dagster-webserver:
+    image: crypto-belief-pipeline:local
+    container_name: crypto-belief-dagster-webserver
+    command:
+      [
+        "dagster-webserver",
+        "-h",
+        "0.0.0.0",
+        "-p",
+        "3000",
+        "-w",
+        "/opt/dagster/app/dagster/workspace.yaml",
+      ]
+    ports:
+      - "3000:3000"
+    environment:
+      DAGSTER_HOME: /opt/dagster/dagster_home
+    volumes:
+      - dagster_home:/opt/dagster/dagster_home
+      - ./dagster:/opt/dagster/app/dagster:ro
+      - ./dagster/dagster.yaml:/opt/dagster/dagster_home/dagster.yaml:ro
+    depends_on:
+      dagster-postgres:
+        condition: service_healthy
+      dagster-user-code-crypto-belief:
+        condition: service_started
+    networks:
+      - dagster
+
+  dagster-daemon:
+    image: crypto-belief-pipeline:local
+    container_name: crypto-belief-dagster-daemon
+    command: ["dagster-daemon", "run", "-w", "/opt/dagster/app/dagster/workspace.yaml"]
+    environment:
+      DAGSTER_HOME: /opt/dagster/dagster_home
+      AWS_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-crypto-belief-lake}
+    volumes:
+      - dagster_home:/opt/dagster/dagster_home
+      - ./dagster:/opt/dagster/app/dagster:ro
+      - ./dagster/dagster.yaml:/opt/dagster/dagster_home/dagster.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      dagster-postgres:
+        condition: service_healthy
+      dagster-user-code-crypto-belief:
+        condition: service_started
+    networks:
+      - dagster
 
 volumes:
   minio_data:
+  dagster_home:
+  dagster_postgres_data:
+
+networks:
+  dagster:
+    name: crypto-belief-dagster
