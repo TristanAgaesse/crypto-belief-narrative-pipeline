@@ -4,22 +4,13 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-import yaml
 import polars as pl
-from dagster import (
-    AssetDep,
-    AssetKey,
-    AssetOut,
-    DailyPartitionsDefinition,
-    MetadataValue,
-    Output,
-    asset,
-    multi_asset,
-)
+import yaml
 
 from crypto_belief_pipeline.collectors.binance import collect_binance_raw
 from crypto_belief_pipeline.collectors.gdelt import collect_gdelt_raw_window
 from crypto_belief_pipeline.collectors.polymarket import collect_polymarket_raw
+from crypto_belief_pipeline.config import get_runtime_config
 from crypto_belief_pipeline.dq.soda import run_soda_checks
 from crypto_belief_pipeline.features.build_gold import build_gold_tables
 from crypto_belief_pipeline.lake.batches import generate_batch_id, split_batch_parts
@@ -27,11 +18,15 @@ from crypto_belief_pipeline.lake.paths import microbatch_key, partition_path
 from crypto_belief_pipeline.lake.read import read_jsonl_records, read_parquet_df
 from crypto_belief_pipeline.lake.write import write_jsonl_records, write_parquet_df
 from crypto_belief_pipeline.orchestration.resources import resolve_run_date
-from crypto_belief_pipeline.quality.issues import detect_data_issues, write_data_issues_reports
-from crypto_belief_pipeline.sample_data import load_sample_jsonl
-from crypto_belief_pipeline.config import get_runtime_config
 from crypto_belief_pipeline.orchestration.windows import compute_window
-from crypto_belief_pipeline.state.ingestion_cursors import IngestionCursor, read_cursor, write_cursor
+from crypto_belief_pipeline.quality.issues import detect_data_issues, write_data_issues_reports
+from crypto_belief_pipeline.reports.index_md import render_reports_index_md
+from crypto_belief_pipeline.sample_data import load_sample_jsonl
+from crypto_belief_pipeline.state.ingestion_cursors import (
+    IngestionCursor,
+    read_cursor,
+    write_cursor,
+)
 from crypto_belief_pipeline.transform.normalize_binance import (
     normalize_klines,
     to_crypto_candles_1m,
@@ -41,6 +36,16 @@ from crypto_belief_pipeline.transform.normalize_polymarket import (
     normalize_markets,
     normalize_price_snapshots,
     to_belief_price_snapshots,
+)
+from dagster import (
+    AssetDep,
+    AssetKey,
+    AssetOut,
+    DailyPartitionsDefinition,
+    MetadataValue,
+    Output,
+    asset,
+    multi_asset,
 )
 
 partitions_def = DailyPartitionsDefinition(start_date="2026-05-06")
@@ -72,7 +77,9 @@ def _partition_tick_now_utc(run_date: date) -> datetime:
     return now.replace(second=0, microsecond=0)
 
 
-def _clamp_window_to_partition(window_start: datetime, window_end: datetime, run_date: date) -> tuple[datetime, datetime]:
+def _clamp_window_to_partition(
+    window_start: datetime, window_end: datetime, run_date: date
+) -> tuple[datetime, datetime]:
     part_start, part_end = _partition_bounds_utc(run_date)
     st = max(window_start, part_start)
     et = min(window_end, part_end)
@@ -99,7 +106,12 @@ def _dup_metrics(df, subset: list[str]) -> dict[str, Any]:
     try:
         total = int(getattr(df, "height", 0))
         if total == 0:
-            return {"rows_total": 0, "rows_distinct_on_key": 0, "duplicate_rows": 0, "duplicate_rate": 0.0}
+            return {
+                "rows_total": 0,
+                "rows_distinct_on_key": 0,
+                "duplicate_rows": 0,
+                "duplicate_rate": 0.0,
+            }
         distinct = int(df.unique(subset=subset).height)
         dup = max(total - distinct, 0)
         return {
@@ -421,7 +433,9 @@ def bronze_polymarket(context, raw_polymarket: dict[str, str]) -> dict[str, str]
             ),
             "batch_id": batch_id,
             "dup_markets": MetadataValue.json(_dup_metrics(markets_df, ["market_id"])),
-            "dup_prices": MetadataValue.json(_dup_metrics(prices_df, ["timestamp", "market_id", "outcome"])),
+            "dup_prices": MetadataValue.json(
+                _dup_metrics(prices_df, ["timestamp", "market_id", "outcome"])
+            ),
         }
     )
     return written
@@ -497,7 +511,9 @@ def bronze_gdelt(context, raw_gdelt: dict[str, str]) -> dict[str, str]:
             "rows": int(getattr(bronze_df, "height", 0)),
             "raw_used": chosen,
             "batch_id": batch_id,
-            "dup": MetadataValue.json(_dup_metrics(bronze_df, ["timestamp", "narrative", "query", "source"])),
+            "dup": MetadataValue.json(
+                _dup_metrics(bronze_df, ["timestamp", "narrative", "query", "source"])
+            ),
         }
     )
     return written
@@ -528,7 +544,9 @@ def silver_belief_price_snapshots(context, bronze_polymarket: dict[str, str]) ->
             "written_keys": list(written.keys()),
             "rows": int(getattr(belief_df, "height", 0)),
             "batch_id": batch_id,
-            "dup": MetadataValue.json(_dup_metrics(belief_df, ["timestamp", "market_id", "outcome"])),
+            "dup": MetadataValue.json(
+                _dup_metrics(belief_df, ["timestamp", "market_id", "outcome"])
+            ),
         }
     )
     return written
@@ -547,7 +565,9 @@ def silver_crypto_candles_1m(context, bronze_binance: dict[str, str]) -> dict[st
 
     batch_id = generate_batch_id(_partition_tick_now_utc(run_date))
     parts = split_batch_parts(batch_id)
-    key = microbatch_key("silver", "crypto_candles_1m", parts.date, parts.hour, batch_id, ".parquet")
+    key = microbatch_key(
+        "silver", "crypto_candles_1m", parts.date, parts.hour, batch_id, ".parquet"
+    )
     write_parquet_df(candles_df, key)
 
     written = {"silver_crypto_candles_1m": key}
@@ -586,7 +606,9 @@ def silver_narrative_counts(context, bronze_gdelt: dict[str, str]) -> dict[str, 
             "written_keys": list(written.keys()),
             "rows": int(getattr(counts_df, "height", 0)),
             "batch_id": batch_id,
-            "dup": MetadataValue.json(_dup_metrics(counts_df, ["timestamp", "narrative", "query", "source"])),
+            "dup": MetadataValue.json(
+                _dup_metrics(counts_df, ["timestamp", "narrative", "query", "source"])
+            ),
         }
     )
     return written
@@ -691,26 +713,13 @@ def markdown_reports(
     index_path = reports_dir / "index.md"
 
     soda_paths = soda_data_quality.get("report_paths") or {}
-    issues_json = "reports/data_issues.json"
-    issues_md = "reports/data_issues.md"
-
-    lines = [
-        f"# Reports ({run_date.isoformat()})",
-        "",
-        "## Data quality (Soda)",
-        f"- Output: `{soda_paths.get('output_txt', 'reports/soda_scan_output.txt')}`",
-        f"- Summary: `{soda_paths.get('summary_json', 'reports/soda_scan_summary.json')}`",
-        "",
-        "## Data issues (domain detector)",
-        f"- Markdown: `{issues_md}`",
-        f"- JSON: `{issues_json}`",
-        "",
-        "## Quick stats",
-        f"- Issues: {len(data_issues)}",
-        f"- Soda passed: {bool(soda_data_quality.get('passed'))}",
-        "",
-    ]
-    index_path.write_text("\n".join(lines), encoding="utf-8")
+    body = render_reports_index_md(
+        run_date.isoformat(),
+        issues_count=len(data_issues),
+        soda_passed=bool(soda_data_quality.get("passed")),
+        soda_paths=soda_paths if isinstance(soda_paths, dict) else None,
+    )
+    index_path.write_text(body, encoding="utf-8")
 
     out = {"index_md": str(index_path)}
     context.add_output_metadata(
@@ -720,6 +729,7 @@ def markdown_reports(
 
 
 ALL_ASSETS = [
+    raw_sample_inputs,
     raw_polymarket,
     raw_binance,
     raw_gdelt,

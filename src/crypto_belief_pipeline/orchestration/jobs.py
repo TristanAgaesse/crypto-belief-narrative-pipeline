@@ -41,7 +41,8 @@ gold_live_signals_5m_job = define_asset_job(
 
 label_maturation_1h_job = define_asset_job(
     name="label_maturation_1h_job",
-    selection=AssetSelection.assets("gold_training_examples"),
+    # `gold_training_examples` is one output of a non-subsettable multi-asset; include neighbors.
+    selection=AssetSelection.assets("gold_training_examples").required_multi_asset_neighbors(),
 )
 
 soda_60m_job = define_asset_job(
@@ -54,6 +55,9 @@ reports_daily_job = define_asset_job(
     selection=AssetSelection.assets("markdown_reports"),
 )
 
+# Note: bronze→silver assets depend on live `raw_*` collectors, not `raw_sample_inputs`.
+# This job is for environments that can hit live APIs; for fully offline sample data use
+# `make full-sample` / `pipeline run --mode sample` instead.
 incremental_sample_job = define_asset_job(
     name="incremental_sample_job",
     selection=AssetSelection.assets(

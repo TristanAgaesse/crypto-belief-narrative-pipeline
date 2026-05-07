@@ -37,7 +37,7 @@ The Step 2 sample files and the Step 3 live collectors emit the same raw schemas
 1. Raw collectors (or sample inputs) write immutable JSONL into `raw/...`.
 2. Normalization builds typed, source-shaped Parquet into `bronze/...`.
 3. Normalization builds research-ready tables into `silver/...`.
-4. Research outputs (features/labels/event studies) land in `gold/...` (later step).
+4. Research outputs (features/labels) land in `gold/...` today; **event-study tables and long-form research markdown** are [deferred](#roadmap--deferred-work) (not shipped in this repo yet).
 
 ## Lake layout
 All datasets are partitioned by date:
@@ -47,7 +47,7 @@ Layers:
 - `raw`: immutable source-shaped JSONL, minimal assumptions
 - `bronze`: typed but still source-shaped Parquet (adds `ingested_at`, keeps `raw_json`)
 - `silver`: normalized research-ready Parquet (cross-source consistency)
-- `gold`: future outputs (features, labels, event study tables, reports)
+- `gold`: training + live-signal Parquet today; event-study–specific tables/reports remain roadmap-only (see below)
 
 ## Step 2 sample pipeline keys
 Raw:
@@ -115,3 +115,8 @@ Joins:
 - Result `LEFT JOIN` price features on `(event_time, asset)`
 
 Manual market interpretation lives in `data/sample/market_tags.csv`. Markets without a tag row are excluded from gold features (see `features/market_tags.py`).
+
+## Roadmap / deferred work
+
+- **Event-study reports**: dedicated summaries (hit rates by horizon/asset/narrative, `sample_report.md`-style narratives) are **not implemented** yet. Current Step 3.5 outputs are Soda logs, structured data issues (`reports/data_issues.{md,json}`), and a lightweight `reports/index.md` (CLI `generate-reports` and Dagster `markdown_reports` share the same renderer in `reports/index_md.py`).
+- **Dagster `incremental_sample_job`**: includes live collector assets upstream of bronze; use `make full-sample` / `pipeline run --mode sample` for offline sample runs.

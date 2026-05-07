@@ -225,15 +225,23 @@ This matches “central scheduler triggers containerized jobs” while remaining
 - `.env.example` is the committed template.
 - In Docker, services read env vars from your local environment/`.env` at runtime; nothing secret is baked into images.
 
-Materialize via Dagster CLI (example: sample partition):
+Materialize via Dagster CLI (sample-shaped job; requires `sample.sample_enabled=true` in `config/runtime.yaml` for `raw_sample_inputs`):
 
 ```bash
 . .venv/bin/activate
+RUN_DATE=2026-05-06 make dagster-materialize-sample
+# equivalent:
 dagster asset materialize -m crypto_belief_pipeline.orchestration.definitions \
-  --select raw_sample_inputs,bronze_polymarket,bronze_binance,bronze_gdelt,\
-silver_belief_price_snapshots,silver_crypto_candles_1m,silver_narrative_counts,\
-gold_training_examples,gold_live_signals,soda_data_quality,data_issues,markdown_reports \
-  --partition 2026-05-06
+  --job incremental_sample_job --partition 2026-05-06
+```
+
+`incremental_sample_job` includes **live** raw collector assets as upstream dependencies of bronze/silver (`raw_polymarket`, `raw_binance`, `raw_gdelt`). It is **not** a fully offline path. For deterministic offline sample data + gold + DQ, use `make full-sample` or `python -m crypto_belief_pipeline.cli pipeline run --mode sample`.
+
+To materialize only deterministic sample raw JSONL under the configured sample prefix:
+
+```bash
+dagster asset materialize -m crypto_belief_pipeline.orchestration.definitions \
+  --select raw_sample_inputs --partition 2026-05-06
 ```
 
 Data quality (Soda Core over DuckDB external Parquet views):
@@ -282,7 +290,7 @@ Step 4 enforces a strict separation:
 
 Tests in `tests/test_forward_labels_no_lookahead.py` and `tests/test_narrative_features.py` enforce this invariant.
 
-Next steps add quality reports, event-study summaries, and dashboards.
+Next steps add richer quality narratives, event-study summaries (see [docs/architecture.md](docs/architecture.md#roadmap--deferred-work)), and dashboards.
 
 ## Important disclaimer
 This repository **does not claim** a profitable trading strategy. It’s a framework for testing hypotheses with better data hygiene and faster iteration.

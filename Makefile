@@ -79,7 +79,7 @@ dagster-dev:
 	. .venv/bin/activate && dagster dev -m crypto_belief_pipeline.orchestration.definitions
 
 dagster-materialize-sample:
-	. .venv/bin/activate && dagster asset materialize --module crypto_belief_pipeline.orchestration.definitions --select raw_sample_inputs,bronze_polymarket,bronze_binance,bronze_gdelt,silver_belief_price_snapshots,silver_crypto_candles_1m,silver_narrative_counts,gold_tables,soda_data_quality,data_issues,markdown_reports
+	. .venv/bin/activate && dagster asset materialize --module crypto_belief_pipeline.orchestration.definitions --job incremental_sample_job --partition $${RUN_DATE:-$(DATE)}
 
 generate-reports:
 	. .venv/bin/activate && python -m crypto_belief_pipeline.cli generate-reports --date $${RUN_DATE:-$(DATE)}
