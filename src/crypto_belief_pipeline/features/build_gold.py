@@ -5,6 +5,7 @@ from pathlib import Path
 
 import polars as pl
 
+from crypto_belief_pipeline.contracts import GOLD_LIVE_SIGNALS, GOLD_TRAINING_EXAMPLES
 from crypto_belief_pipeline.features.belief import build_belief_features
 from crypto_belief_pipeline.features.labels import add_directional_labels
 from crypto_belief_pipeline.features.market_tags import (
@@ -63,12 +64,18 @@ def build_gold_tables(
     candles_key: str | None = None,
     narrative_key: str | None = None,
     market_tags_path: str | Path = DEFAULT_MARKET_TAGS_PATH,
+    *,
+    bucket: str | None = None,
 ) -> dict[str, str]:
     """Build the Step 4 gold tables and write them to S3.
 
     Reads silver Parquet inputs, joins belief / narrative / price features,
     applies directional labels and the underreaction scoring, then writes the
     full ``training_examples`` table and the filtered ``live_signals`` table.
+
+    ``bucket`` overrides the default lake bucket for both reads and writes.
+    Sample-mode callers pass the dedicated sample bucket so silver inputs and
+    gold outputs stay co-located there.
 
     Returns a dict mapping ``{"training_examples": key, "live_signals": key}``.
     """
@@ -78,9 +85,9 @@ def build_gold_tables(
     candles_key = candles_key or default_candles
     narrative_key = narrative_key or default_narrative
 
-    belief_silver = read_parquet_df(belief_key)
-    candles_silver = read_parquet_df(candles_key)
-    narrative_silver = read_parquet_df(narrative_key)
+    belief_silver = read_parquet_df(belief_key, bucket=bucket)
+    candles_silver = read_parquet_df(candles_key, bucket=bucket)
+    narrative_silver = read_parquet_df(narrative_key, bucket=bucket)
 
     tags = validate_market_tags(load_market_tags(market_tags_path))
 
@@ -105,8 +112,11 @@ def build_gold_tables(
 
     training_key, live_key = _gold_keys(run_date)
 
-    write_parquet_df(training_examples, training_key)
-    write_parquet_df(live_signals, live_key)
+    GOLD_TRAINING_EXAMPLES.validate(training_examples)
+    GOLD_LIVE_SIGNALS.validate(live_signals)
+
+    write_parquet_df(training_examples, training_key, bucket=bucket)
+    write_parquet_df(live_signals, live_key, bucket=bucket)
 
     return {
         "training_examples": training_key,

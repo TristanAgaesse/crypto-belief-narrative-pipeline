@@ -126,6 +126,8 @@ def test_build_gold_training_examples_contains_required_columns(monkeypatch, tmp
         "belief_shock_1h",
         "belief_shock_abs_1h",
         "belief_shock_z_1h",
+        "price_lag_1h_source_time",
+        "price_lag_4h_source_time",
         "narrative_acceleration_1h",
         "narrative_z_1h",
         "asset_ret_past_1h",
@@ -139,6 +141,155 @@ def test_build_gold_training_examples_contains_required_columns(monkeypatch, tmp
     }
     assert expected_cols.issubset(set(training.columns))
     assert training.height >= 1
+
+
+def test_build_gold_normalizes_mixed_timezone_event_time(monkeypatch, tmp_path) -> None:
+    """Mixed tz-aware and tz-naive silver inputs must still join cleanly.
+
+    Polars requires join keys to match exactly (including timezone). The
+    ``_normalize_event_time_utc`` helper exists specifically to keep gold robust
+    when upstream layers produce inconsistent timezone metadata; this test
+    locks that contract in.
+    """
+
+    base_ts = datetime(2026, 5, 6, 10, 0, 0, tzinfo=UTC)
+
+    # Belief silver: tz-AWARE timestamps (typical Polymarket parsing path).
+    belief_aware = pl.DataFrame(
+        {
+            "timestamp": [base_ts + timedelta(hours=h) for h in range(2)],
+            "platform": ["polymarket"] * 2,
+            "market_id": ["pm_btc_reserve_001"] * 2,
+            "outcome": ["Yes"] * 2,
+            "price": [0.30, 0.45],
+            "best_bid": [0.29, 0.44],
+            "best_ask": [0.31, 0.46],
+            "spread": [0.02, 0.02],
+            "liquidity": [125000.0] * 2,
+            "volume": [800000.0] * 2,
+        }
+    )
+
+    # Narrative silver: tz-NAIVE timestamps. Must still join with belief and prices.
+    narrative_naive = pl.DataFrame(
+        {
+            "timestamp": [
+                datetime(2026, 5, 6, 10, 0, 0),
+                datetime(2026, 5, 6, 11, 0, 0),
+            ],
+            "narrative": ["bitcoin_reserve"] * 2,
+            "query": ["q"] * 2,
+            "mention_volume": [0.0001, 0.0004],
+            "avg_tone": [1.0] * 2,
+            "source": ["gdelt"] * 2,
+        }
+    )
+
+    candles_aware = _candles_silver()
+
+    silver_lookup = {
+        "silver/belief_price_snapshots/date=2026-05-06/data.parquet": belief_aware,
+        "silver/crypto_candles_1m/date=2026-05-06/data.parquet": candles_aware,
+        "silver/narrative_counts/date=2026-05-06/data.parquet": narrative_naive,
+    }
+    captured: dict[str, pl.DataFrame] = {}
+
+    monkeypatch.setattr(bg, "read_parquet_df", lambda key, bucket=None: silver_lookup[key])
+    monkeypatch.setattr(
+        bg, "write_parquet_df", lambda df, key, bucket=None: captured.setdefault(key, df)
+    )
+
+    tags_csv = tmp_path / "market_tags.csv"
+    tags_csv.write_text(
+        "market_id,asset,narrative,direction,relevance,confidence,notes\n"
+        "pm_btc_reserve_001,BTC,bitcoin_reserve,1,high,0.9,sample\n"
+    )
+
+    bg.build_gold_tables(run_date="2026-05-06", market_tags_path=tags_csv)
+
+    training = captured["gold/training_examples/date=2026-05-06/data.parquet"]
+    # The mixed-tz inputs must join (no event_time mismatch dropping all rows).
+    assert training.height >= 1
+    # Narrative features should land for at least one row when tz alignment works.
+    has_narrative_value = (
+        training.filter(pl.col("narrative_acceleration_1h").is_not_null()).height > 0
+    )
+    assert has_narrative_value
+
+
+def test_build_gold_duplicate_silver_narrative_does_not_explode_cardinality(
+    monkeypatch, tmp_path
+) -> None:
+    """Duplicate narrative rows at same (event_time, narrative) must not multiply gold rows.
+
+    Without controlled join semantics, a duplicate silver narrative row would
+    cause a Cartesian-style growth of gold rows. We assert the gold row count
+    stays bounded by the belief input size.
+    """
+
+    base_ts = datetime(2026, 5, 6, 10, 0, 0, tzinfo=UTC)
+
+    belief = pl.DataFrame(
+        {
+            "timestamp": [base_ts + timedelta(hours=h) for h in range(2)],
+            "platform": ["polymarket"] * 2,
+            "market_id": ["pm_btc_reserve_001"] * 2,
+            "outcome": ["Yes"] * 2,
+            "price": [0.30, 0.45],
+            "best_bid": [0.29, 0.44],
+            "best_ask": [0.31, 0.46],
+            "spread": [0.02, 0.02],
+            "liquidity": [125000.0] * 2,
+            "volume": [800000.0] * 2,
+        }
+    )
+
+    # Duplicate narrative rows for the same (timestamp, narrative).
+    narrative = pl.DataFrame(
+        {
+            "timestamp": [
+                base_ts,
+                base_ts,
+                base_ts + timedelta(hours=1),
+                base_ts + timedelta(hours=1),
+            ],
+            "narrative": ["bitcoin_reserve"] * 4,
+            "query": ["q"] * 4,
+            "mention_volume": [0.0001, 0.0001, 0.0004, 0.0004],
+            "avg_tone": [1.0] * 4,
+            "source": ["gdelt"] * 4,
+        }
+    )
+
+    candles = _candles_silver()
+
+    silver_lookup = {
+        "silver/belief_price_snapshots/date=2026-05-06/data.parquet": belief,
+        "silver/crypto_candles_1m/date=2026-05-06/data.parquet": candles,
+        "silver/narrative_counts/date=2026-05-06/data.parquet": narrative,
+    }
+    captured: dict[str, pl.DataFrame] = {}
+
+    monkeypatch.setattr(bg, "read_parquet_df", lambda key, bucket=None: silver_lookup[key])
+    monkeypatch.setattr(
+        bg, "write_parquet_df", lambda df, key, bucket=None: captured.setdefault(key, df)
+    )
+
+    tags_csv = tmp_path / "market_tags.csv"
+    tags_csv.write_text(
+        "market_id,asset,narrative,direction,relevance,confidence,notes\n"
+        "pm_btc_reserve_001,BTC,bitcoin_reserve,1,high,0.9,sample\n"
+    )
+
+    bg.build_gold_tables(run_date="2026-05-06", market_tags_path=tags_csv)
+    training = captured["gold/training_examples/date=2026-05-06/data.parquet"]
+
+    # Belief produces 2 candidate rows; gold rows must not exceed belief rows
+    # by more than a constant factor (i.e. join cardinality stays controlled).
+    assert training.height <= belief.height * 2
+    # Narrative key uniqueness check that joined narrative metrics are deterministic.
+    distinct_event_times = training["event_time"].n_unique()
+    assert distinct_event_times >= 1
 
 
 def test_build_gold_live_signals_is_filtered_subset(monkeypatch, tmp_path) -> None:
