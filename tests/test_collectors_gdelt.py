@@ -26,9 +26,9 @@ def test_load_narratives_config_reads_yaml(tmp_path: Path) -> None:
 
 
 def test_fetch_timelinevol_converts_volume_intensity_columns(monkeypatch) -> None:
-    def fake_request(mode: str, query_string: str, **kwargs):  # noqa: ANN001
+    def fake_request(mode: str, query_params: dict, **kwargs):  # noqa: ANN001
         assert mode == "timelinevol"
-        assert "bitcoin" in query_string
+        assert "bitcoin" in query_params["query"]
         return {
             "timeline": [
                 {

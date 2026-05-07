@@ -123,6 +123,35 @@ def _df_rows(df: Any) -> list[dict]:
 
 
 def _rows_to_records(rows: list[dict], narrative: str, query: str) -> list[dict]:
+    def _jsonable(v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, (str, int, bool)):
+            return v
+        if isinstance(v, float):
+            return None if v != v else v  # NaN -> None
+        if isinstance(v, datetime):
+            dt = v if v.tzinfo else v.replace(tzinfo=UTC)
+            return dt.astimezone(UTC).strftime(_TS_FORMAT)
+        # pandas Timestamp / numpy scalars often expose `.to_pydatetime()` / `.item()`
+        to_pydatetime = getattr(v, "to_pydatetime", None)
+        if callable(to_pydatetime):
+            try:
+                return _jsonable(to_pydatetime())
+            except Exception:
+                return str(v)
+        item = getattr(v, "item", None)
+        if callable(item):
+            try:
+                return _jsonable(item())
+            except Exception:
+                return str(v)
+        if isinstance(v, dict):
+            return {str(k): _jsonable(val) for k, val in v.items()}
+        if isinstance(v, list):
+            return [_jsonable(x) for x in v]
+        return str(v)
+
     out: list[dict] = []
     for row in rows:
         ts_raw = _pick_first(row, _TIMESTAMP_COLS)
@@ -141,7 +170,7 @@ def _rows_to_records(rows: list[dict], narrative: str, query: str) -> list[dict]
                 "mention_volume": mention_volume,
                 "avg_tone": avg_tone,
                 "source": "gdelt",
-                "raw": row,
+                "raw": _jsonable(row),
             }
         )
     return out
@@ -184,7 +213,7 @@ def _timeline_response_to_dataframe(timeline: dict, mode: str) -> pd.DataFrame:
 
 def _gdelt_doc_request(
     mode: str,
-    query_string: str,
+    query_params: dict[str, Any],
     *,
     min_interval_sec: float,
     max_attempts: int,
@@ -192,7 +221,10 @@ def _gdelt_doc_request(
 ) -> dict:
     """GET GDELT Doc JSON with spacing, retries on 429 / transient 5xx / transport errors."""
 
-    params = {"query": query_string.strip(), "mode": mode, "format": "json"}
+    # `gdeltdoc.Filters.query_string` includes URL query params (e.g. `&startdatetime=...`).
+    # We must pass a proper params dict instead of embedding `&...` inside the `query` value,
+    # otherwise GDELT returns an HTML error about illegal characters.
+    params = {**query_params, "mode": mode, "format": "json"}
     headers = {"User-Agent": f"{USER_AGENT} gdelt-doc", "Accept": "application/json"}
     last_exc: BaseException | None = None
 
@@ -264,6 +296,35 @@ def _gdelt_doc_request(
     raise RuntimeError(msg) from last_exc
 
 
+def _filters_query_params(filters: Filters) -> dict[str, Any]:
+    """Convert gdeltdoc Filters.query_params into a requests-style params dict.
+
+    gdeltdoc exposes `Filters.query_params` as a list:
+      ['"bitcoin ETF" ', '&startdatetime=...', '&enddatetime=...', '&maxrecords=250']
+
+    We must not embed the `&...` fragments into the `query` value.
+    """
+
+    qp = getattr(filters, "query_params", None)
+    if isinstance(qp, dict):
+        return qp
+    if isinstance(qp, list) and qp:
+        query = str(qp[0]).strip()
+        params: dict[str, Any] = {"query": query}
+        for frag in qp[1:]:
+            text = str(frag).strip()
+            if text.startswith("&"):
+                text = text[1:]
+            if "=" in text:
+                k, v = text.split("=", 1)
+                params[k] = v
+        return params
+    # Fallback: use query_string but strip everything after the first space.
+    qs = str(getattr(filters, "query_string", "")).strip()
+    query_only = qs.split(" ", 1)[0] if qs else ""
+    return {"query": query_only}
+
+
 def fetch_timelinevol(
     narrative: str,
     query: str,
@@ -283,7 +344,7 @@ def fetch_timelinevol(
     )
     timeline = _gdelt_doc_request(
         "timelinevol",
-        filters.query_string,
+        _filters_query_params(filters),
         min_interval_sec=min_interval_sec,
         max_attempts=max_attempts,
         timeout=timeout,
