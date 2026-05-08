@@ -3,9 +3,9 @@ DATE ?= 2026-05-06
 
 .PHONY: setup lint format test minio-up minio-down ensure-bucket check-config run-sample \
 	smoke-test-apis fetch-live run-live build-gold dq detect-data-issues dagster-dev \
-	dagster-materialize-sample dagster-render-config generate-reports full-sample \
-	docker-build docker-up docker-down dagster-up dagster-down dagster-ensure-bucket \
-	deploy deploy-validate deploy-rollback
+	dagster-materialize-sample generate-reports full-sample \
+	docker-build build-control-plane docker-up docker-down dagster-up dagster-down dagster-ensure-bucket \
+	deploy deploy-persist deploy-validate deploy-rollback
 
 setup:
 	python3.11 -m venv .venv
@@ -22,15 +22,11 @@ format:
 test:
 	. .venv/bin/activate && pytest -q
 
-minio-up: dagster-render-config
+minio-up:
 	docker compose up -d
 
 minio-down:
 	docker compose down
-
-dagster-render-config:
-	@chmod +x scripts/render_dagster_yaml.sh
-	@./scripts/render_dagster_yaml.sh
 
 docker-build:
 	docker compose build \
@@ -39,7 +35,14 @@ docker-build:
 		--build-arg VERSION="$$(python -c 'import tomllib;print(tomllib.load(open(\"pyproject.toml\",\"rb\"))[\"project\"][\"version\"])')" \
 		dagster-webserver dagster-daemon dagster-user-code-crypto-belief
 
-docker-up: dagster-render-config docker-build
+build-control-plane:
+	docker compose build \
+		--build-arg BUILD_DATE="$$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+		--build-arg VCS_REF="$$(git rev-parse --short HEAD)" \
+		--build-arg VERSION="$$(python -c 'import tomllib;print(tomllib.load(open(\"pyproject.toml\",\"rb\"))[\"project\"][\"version\"])')" \
+		dagster-webserver dagster-daemon
+
+docker-up: docker-build
 	docker compose up -d
 
 docker-down:
@@ -53,6 +56,10 @@ dagster-down: docker-down
 deploy:
 	@chmod +x scripts/deploy_dagster.sh
 	@./scripts/deploy_dagster.sh
+
+deploy-persist:
+	@chmod +x scripts/deploy_dagster.sh
+	@./scripts/deploy_dagster.sh --persist-tag
 
 deploy-validate:
 	@chmod +x scripts/deploy_dagster.sh

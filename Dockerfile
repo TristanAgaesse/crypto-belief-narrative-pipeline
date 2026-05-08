@@ -23,6 +23,8 @@ COPY data/sample ./data/sample
 # Install the project itself without re-resolving deps.
 RUN pip install --no-deps .
 
+RUN mkdir -p /opt/dagster/dagster_home
+
 ARG BUILD_DATE
 ARG VCS_REF
 ARG VERSION

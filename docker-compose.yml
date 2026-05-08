@@ -1,3 +1,26 @@
+# Shared env fragments (YAML anchors). Only one merge key (<<) per mapping — Compose rejects duplicate "<<".
+x-aws-minio-env: &aws_minio_env
+  AWS_ENDPOINT_URL: http://minio:9000
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minioadmin}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
+  AWS_REGION: ${AWS_REGION:-us-east-1}
+  S3_BUCKET: ${S3_BUCKET:-crypto-belief-lake}
+
+x-user-code-env: &user_code_env
+  DAGSTER_HOME: /opt/dagster/dagster_home
+  <<: *aws_minio_env
+
+x-webserver-env: &webserver_env
+  DAGSTER_HOME: /opt/dagster/dagster_home
+  PIPELINE_IMAGE: ${PIPELINE_IMAGE:-crypto-belief-pipeline}
+  PIPELINE_TAG: ${PIPELINE_TAG:-local}
+
+# Daemon = user-code AWS block + pipeline ref (same as webserver pipeline vars)
+x-daemon-env: &daemon_env
+  <<: *user_code_env
+  PIPELINE_IMAGE: ${PIPELINE_IMAGE:-crypto-belief-pipeline}
+  PIPELINE_TAG: ${PIPELINE_TAG:-local}
+
 services:
   minio:
     image: minio/minio:latest
@@ -49,12 +72,7 @@ services:
         "4000",
       ]
     environment:
-      DAGSTER_HOME: /opt/dagster/dagster_home
-      AWS_ENDPOINT_URL: http://minio:9000
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minioadmin}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
-      AWS_REGION: ${AWS_REGION:-us-east-1}
-      S3_BUCKET: ${S3_BUCKET:-crypto-belief-lake}
+      <<: *user_code_env
     networks:
       - dagster
 
@@ -66,6 +84,7 @@ services:
     container_name: crypto-belief-dagster-webserver
     command:
       [
+        "dagster-control-plane-entrypoint",
         "dagster-webserver",
         "-h",
         "0.0.0.0",
@@ -77,11 +96,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      DAGSTER_HOME: /opt/dagster/dagster_home
+      <<: *webserver_env
     volumes:
       - dagster_home:/opt/dagster/dagster_home
       - ./dagster:/opt/dagster/app/dagster:ro
-      - ./dagster/dagster.yaml:/opt/dagster/dagster_home/dagster.yaml:ro
     depends_on:
       dagster-postgres:
         condition: service_healthy
@@ -96,18 +114,19 @@ services:
       dockerfile: ./Dockerfile_dagster
     image: ${CONTROL_PLANE_IMAGE:-crypto-belief-dagster-control-plane}:${CONTROL_PLANE_TAG:-local}
     container_name: crypto-belief-dagster-daemon
-    command: ["dagster-daemon", "run", "-w", "/opt/dagster/app/dagster/workspace.yaml"]
+    command:
+      [
+        "dagster-control-plane-entrypoint",
+        "dagster-daemon",
+        "run",
+        "-w",
+        "/opt/dagster/app/dagster/workspace.yaml",
+      ]
     environment:
-      DAGSTER_HOME: /opt/dagster/dagster_home
-      AWS_ENDPOINT_URL: http://minio:9000
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minioadmin}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
-      AWS_REGION: ${AWS_REGION:-us-east-1}
-      S3_BUCKET: ${S3_BUCKET:-crypto-belief-lake}
+      <<: *daemon_env
     volumes:
       - dagster_home:/opt/dagster/dagster_home
       - ./dagster:/opt/dagster/app/dagster:ro
-      - ./dagster/dagster.yaml:/opt/dagster/dagster_home/dagster.yaml:ro
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       dagster-postgres:

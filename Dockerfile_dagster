@@ -19,3 +19,6 @@ RUN mkdir -p "$DAGSTER_HOME"
 
 WORKDIR /opt/dagster/app
 
+COPY scripts/dagster_control_plane_entrypoint.sh /usr/local/bin/dagster-control-plane-entrypoint
+RUN chmod +x /usr/local/bin/dagster-control-plane-entrypoint
+

@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# Build pipeline image, update PIPELINE_TAG, render dagster.yaml, rolling-restart Dagster services.
+# Build pipeline image, rolling-restart Dagster services. Dagster instance YAML is rendered at
+# container startup (see dagster-control-plane-entrypoint); no host-side render.
+#
 # Usage:
-#   ./scripts/deploy_dagster.sh              # build with git short SHA as tag, deploy, no smoke
-#   ./scripts/deploy_dagster.sh --validate   # deploy + smoke materialize ingestion jobs
+#   ./scripts/deploy_dagster.sh                    # build user-code only, tag=git SHA, no .env write
+#   ./scripts/deploy_dagster.sh --validate         # + smoke ingestion jobs
+#   ./scripts/deploy_dagster.sh --persist-tag    # also write PIPELINE_TAG to .env
+#   ./scripts/deploy_dagster.sh --rebuild-control-plane
 #   ./scripts/deploy_dagster.sh --rollback TAG=abc1234
 set -euo pipefail
 
@@ -12,58 +16,79 @@ cd "$ROOT"
 VALIDATE=false
 ROLLBACK=false
 ROLLBACK_TAG=""
+PERSIST_TAG=false
+REBUILD_CONTROL_PLANE=false
 
 for arg in "$@"; do
   case "$arg" in
     --validate) VALIDATE=true ;;
     --rollback) ROLLBACK=true ;;
+    --persist-tag) PERSIST_TAG=true ;;
+    --rebuild-control-plane) REBUILD_CONTROL_PLANE=true ;;
     TAG=*) ROLLBACK_TAG="${arg#TAG=}" ;;
   esac
 done
 
 _update_env_pipeline_tag() {
   local tag="$1"
+  if [[ ! -f .env ]]; then
+    echo "PIPELINE_TAG=${tag}" >>.env
+    return
+  fi
   if grep -q '^PIPELINE_TAG=' .env; then
     sed -i.bak "s/^PIPELINE_TAG=.*/PIPELINE_TAG=${tag}/" .env && rm -f .env.bak
   else
-    echo "PIPELINE_TAG=${tag}" >> .env
+    echo "PIPELINE_TAG=${tag}" >>.env
   fi
 }
 
-_update_env_control_plane_defaults_if_needed() {
-  # Earlier versions of this repo used CONTROL_PLANE_IMAGE=dagster/dagster which is not pullable.
-  # If .env still has that value, move to the locally-built control-plane image.
+_fix_legacy_control_plane_image_in_env() {
+  [[ -f .env ]] || return 0
   if grep -q '^CONTROL_PLANE_IMAGE=dagster/dagster$' .env 2>/dev/null; then
     sed -i.bak "s/^CONTROL_PLANE_IMAGE=.*/CONTROL_PLANE_IMAGE=crypto-belief-dagster-control-plane/" .env && rm -f .env.bak
+    echo "Updated legacy CONTROL_PLANE_IMAGE in .env"
   fi
-  if ! grep -q '^CONTROL_PLANE_IMAGE=' .env 2>/dev/null; then
-    echo "CONTROL_PLANE_IMAGE=crypto-belief-dagster-control-plane" >> .env
-  fi
-  if ! grep -q '^CONTROL_PLANE_TAG=' .env 2>/dev/null; then
-    echo "CONTROL_PLANE_TAG=local" >> .env
-  fi
+}
+
+_compose() {
+  # shellcheck disable=SC2068
+  docker compose "$@"
+}
+
+_validate_ingestion_job() {
+  local job="$1"
+  local partition="$2"
+  echo "  -> ${job}"
+  _compose run --rm \
+    -e "PIPELINE_TAG=${PIPELINE_TAG}" \
+    -e "PIPELINE_IMAGE=${PIPELINE_IMAGE}" \
+    -e "JOB_NAME=${job}" \
+    -e "PARTITION_TAG=${partition}" \
+    dagster-user-code-crypto-belief \
+    bash -lc 'set -euo pipefail
+      rm -rf /tmp/dagster_smoke_home
+      mkdir -p /tmp/dagster_smoke_home
+      export DAGSTER_HOME=/tmp/dagster_smoke_home
+      printf "telemetry:\n  enabled: false\n" >"$DAGSTER_HOME/dagster.yaml"
+      dagster job execute -m crypto_belief_pipeline.orchestration.definitions \
+        -j "${JOB_NAME}" \
+        --tags "{\"dagster/partition\":\"${PARTITION_TAG}\"}"'
 }
 
 if [[ "$ROLLBACK" == true ]]; then
-  if [[ -z "$ROLLBACK_TAG" ]]; then
+  if [[ -z "${ROLLBACK_TAG:-}" ]]; then
     echo "Usage: $0 --rollback TAG=<image_tag>" >&2
     exit 1
   fi
-  if [[ ! -f .env ]]; then
-    echo "Missing .env; copy from .env.example" >&2
-    exit 1
+  if [[ "$PERSIST_TAG" == true ]]; then
+    [[ -f .env ]] || cp .env.example .env
+    _update_env_pipeline_tag "$ROLLBACK_TAG"
   fi
-  _update_env_pipeline_tag "$ROLLBACK_TAG"
-  set -a
-  # shellcheck disable=SC1091
-  source .env
-  set +a
   export PIPELINE_TAG="$ROLLBACK_TAG"
-  ./scripts/render_dagster_yaml.sh
-  docker compose up -d --no-deps dagster-user-code-crypto-belief
-  docker compose up -d --no-deps dagster-daemon
-  docker compose up -d --no-deps dagster-webserver
-  echo "Rollback complete: PIPELINE_TAG=${ROLLBACK_TAG}"
+  _compose up -d --no-deps dagster-user-code-crypto-belief
+  _compose up -d --no-deps dagster-daemon
+  _compose up -d --no-deps dagster-webserver
+  echo "Rollback complete: PIPELINE_TAG=${ROLLBACK_TAG} (compose uses this for the current shell only unless --persist-tag)"
   exit 0
 fi
 
@@ -72,7 +97,7 @@ if [[ ! -f .env ]]; then
   echo "Created .env from .env.example — review before production."
 fi
 
-_update_env_control_plane_defaults_if_needed
+_fix_legacy_control_plane_image_in_env
 
 set -a
 # shellcheck disable=SC1091
@@ -87,22 +112,27 @@ NEW_TAG="${DEPLOY_TAG:-$VCS_REF}"
 export PIPELINE_IMAGE="${PIPELINE_IMAGE:-crypto-belief-pipeline}"
 export PIPELINE_TAG="$NEW_TAG"
 
-echo "Building ${PIPELINE_IMAGE}:${PIPELINE_TAG} ..."
+BUILD_SERVICES=(dagster-user-code-crypto-belief)
+if [[ "$REBUILD_CONTROL_PLANE" == true ]]; then
+  BUILD_SERVICES=(dagster-webserver dagster-daemon dagster-user-code-crypto-belief)
+fi
 
-docker compose build \
+echo "Building ${PIPELINE_IMAGE}:${PIPELINE_TAG} (${BUILD_SERVICES[*]}) ..."
+
+_compose build \
   --build-arg "BUILD_DATE=${BUILD_DATE}" \
   --build-arg "VCS_REF=${VCS_REF}" \
   --build-arg "VERSION=${VERSION}" \
-  dagster-webserver dagster-daemon dagster-user-code-crypto-belief
+  "${BUILD_SERVICES[@]}"
 
-_update_env_pipeline_tag "$NEW_TAG"
-export PIPELINE_TAG="$NEW_TAG"
-./scripts/render_dagster_yaml.sh
+if [[ "$PERSIST_TAG" == true ]]; then
+  _update_env_pipeline_tag "$NEW_TAG"
+fi
 
 echo "Rolling restart: user-code -> daemon -> webserver ..."
-docker compose up -d --no-deps dagster-user-code-crypto-belief
-docker compose up -d --no-deps dagster-daemon
-docker compose up -d --no-deps dagster-webserver
+_compose up -d --no-deps dagster-user-code-crypto-belief
+_compose up -d --no-deps dagster-daemon
+_compose up -d --no-deps dagster-webserver
 
 for i in $(seq 1 30); do
   if curl -fsS "http://localhost:3000/server_info" >/dev/null 2>&1; then
@@ -117,17 +147,15 @@ done
 
 if [[ "$VALIDATE" == true ]]; then
   PARTITION="${RUN_DATE:-$(date -u +%F)}"
-  echo "Smoke validate: materializing ingestion jobs for partition ${PARTITION} (via pipeline image) ..."
+  echo "Smoke validate: executing ingestion jobs for partition ${PARTITION} ..."
   for job in raw_to_silver__binance__1m_job raw_to_silver__polymarket__5m_job raw_to_silver__gdelt__1h_job; do
-    echo "  -> ${job}"
-    docker compose run --rm \
-      dagster-user-code-crypto-belief \
-      dagster asset materialize \
-      -m crypto_belief_pipeline.orchestration.definitions \
-      --job "$job" \
-      --partition "$PARTITION"
+    _validate_ingestion_job "$job" "$PARTITION"
   done
   echo "Validate complete."
 fi
 
 echo "Deploy complete: ${PIPELINE_IMAGE}:${PIPELINE_TAG}"
+if [[ "$PERSIST_TAG" != true ]]; then
+  echo "Note: PIPELINE_TAG was not written to .env. Next compose without env override uses .env value."
+  echo "      Re-run with --persist-tag or: PIPELINE_TAG=${NEW_TAG} docker compose up -d"
+fi

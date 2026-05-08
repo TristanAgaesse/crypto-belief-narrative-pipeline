@@ -4,6 +4,9 @@ local_artifact_storage:
   config:
     base_dir: /opt/dagster/dagster_home/storage
 
+telemetry:
+  enabled: false
+
 run_storage:
   module: dagster_postgres.run_storage
   class: PostgresRunStorage
