@@ -53,7 +53,8 @@ For deeper docs, see:
 [`docs/limitations.md`](docs/limitations.md),
 [`docs/productionization.md`](docs/productionization.md),
 [`docs/gold_features.md`](docs/gold_features.md),
-[`docs/dagster_jobs.md`](docs/dagster_jobs.md).
+[`docs/dagster_jobs.md`](docs/dagster_jobs.md),
+[`docs/deploy.md`](docs/deploy.md).
 
 ## Why this is a data-infrastructure project
 - **Local-first lake**: MinIO provides an S3-compatible object store on your laptop for reproducible iteration.

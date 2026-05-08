@@ -34,7 +34,7 @@ services:
   dagster-user-code-crypto-belief:
     build:
       context: .
-    image: crypto-belief-pipeline:local
+    image: ${PIPELINE_IMAGE:-crypto-belief-pipeline}:${PIPELINE_TAG:-local}
     container_name: crypto-belief-dagster-user-code
     command:
       [
@@ -59,7 +59,10 @@ services:
       - dagster
 
   dagster-webserver:
-    image: crypto-belief-pipeline:local
+    build:
+      context: .
+      dockerfile: ./Dockerfile_dagster
+    image: ${CONTROL_PLANE_IMAGE:-crypto-belief-dagster-control-plane}:${CONTROL_PLANE_TAG:-local}
     container_name: crypto-belief-dagster-webserver
     command:
       [
@@ -88,7 +91,10 @@ services:
       - dagster
 
   dagster-daemon:
-    image: crypto-belief-pipeline:local
+    build:
+      context: .
+      dockerfile: ./Dockerfile_dagster
+    image: ${CONTROL_PLANE_IMAGE:-crypto-belief-dagster-control-plane}:${CONTROL_PLANE_TAG:-local}
     container_name: crypto-belief-dagster-daemon
     command: ["dagster-daemon", "run", "-w", "/opt/dagster/app/dagster/workspace.yaml"]
     environment:

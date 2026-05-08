@@ -1,0 +1,21 @@
+FROM python:3.11-slim
+
+# Control-plane image: dagster-webserver + dagster-daemon (no user code).
+# Keep this aligned with the dagster version used in the user-code image.
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    DAGSTER_HOME=/opt/dagster/dagster_home
+
+RUN python -m pip install --upgrade pip && pip install \
+  dagster \
+  dagster-webserver \
+  dagster-postgres \
+  dagster-docker
+
+RUN mkdir -p "$DAGSTER_HOME"
+
+WORKDIR /opt/dagster/app
+
