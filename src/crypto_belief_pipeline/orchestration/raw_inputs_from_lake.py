@@ -100,6 +100,23 @@ def _partition_dates_for_window(partition_start: datetime, partition_end: dateti
     return out
 
 
+def _hourly_partition_key(partition_start: datetime) -> str:
+    return partition_start.astimezone(UTC).strftime("%Y-%m-%d-%H:%M")
+
+
+def _safe_partition_slug(partition_key: str) -> str:
+    return partition_key.replace(":", "-")
+
+
+def _canonical_raw_hourly_key(*, dataset: str, partition_start: datetime) -> str:
+    run_date = partition_start.astimezone(UTC).date()
+    partition_key = _hourly_partition_key(partition_start)
+    return (
+        f"{partition_path('raw', dataset, run_date)}"
+        f"/partition={_safe_partition_slug(partition_key)}/data.jsonl"
+    )
+
+
 def _list_window_jsonl_keys(
     dataset: str,
     partition_start: datetime,
@@ -178,10 +195,44 @@ def list_raw_polymarket_for_partition_window(
     *,
     partition_start: datetime,
     partition_end: datetime,
+    include_canonical_hourly: bool = False,
 ) -> tuple[list[dict[str, str]], str]:
     last_err: FileNotFoundError | None = None
     for bucket in _candidate_buckets():
         try:
+            if include_canonical_hourly:
+                mk = _canonical_raw_hourly_key(
+                    dataset="provider=polymarket_markets",
+                    partition_start=partition_start,
+                )
+                pk = _canonical_raw_hourly_key(
+                    dataset="provider=polymarket_prices",
+                    partition_start=partition_start,
+                )
+                mk_prefix = partition_path(
+                    "raw", "provider=polymarket_markets", partition_start.astimezone(UTC).date()
+                )
+                pk_prefix = partition_path(
+                    "raw", "provider=polymarket_prices", partition_start.astimezone(UTC).date()
+                )
+                mk_keys = set(list_jsonl_keys_under(mk_prefix, bucket=bucket))
+                pk_keys = set(list_jsonl_keys_under(pk_prefix, bucket=bucket))
+                if mk in mk_keys and pk in pk_keys:
+                    canonical_batch_id = (
+                        f"{partition_start.astimezone(UTC).strftime('%Y%m%dT%H%M%SZ')}_canonical"
+                    )
+                    return (
+                        [
+                            {
+                                "raw_polymarket_markets": mk,
+                                "raw_polymarket_prices": pk,
+                                "source_batch_id": canonical_batch_id,
+                                "source_window_start": "",
+                                "source_window_end": "",
+                            }
+                        ],
+                        bucket,
+                    )
             keys = _list_window_jsonl_keys(
                 "provider=polymarket", partition_start, partition_end, bucket=bucket
             )
@@ -260,6 +311,7 @@ def list_raw_binance_for_partition_window(
     *,
     partition_start: datetime,
     partition_end: datetime,
+    include_canonical_hourly: bool = False,
 ) -> tuple[list[dict[str, str]], str]:
     last_err: FileNotFoundError | None = None
     for bucket in _candidate_buckets():
@@ -267,6 +319,26 @@ def list_raw_binance_for_partition_window(
             keys = _list_window_jsonl_keys(
                 "provider=binance", partition_start, partition_end, bucket=bucket
             )
+            if include_canonical_hourly:
+                canonical_key = _canonical_raw_hourly_key(
+                    dataset="provider=binance",
+                    partition_start=partition_start,
+                )
+                if canonical_key in keys:
+                    canonical_batch_id = (
+                        f"{partition_start.astimezone(UTC).strftime('%Y%m%dT%H%M%SZ')}_canonical"
+                    )
+                    return (
+                        [
+                            {
+                                "raw_binance_klines": canonical_key,
+                                "source_batch_id": canonical_batch_id,
+                                "source_window_start": "",
+                                "source_window_end": "",
+                            }
+                        ],
+                        bucket,
+                    )
             micro = sorted(k for k in keys if _is_microbatch_non_polymarket_jsonl(k))
             out: list[dict[str, str]] = []
             for chosen in micro:
@@ -345,6 +417,7 @@ def list_raw_gdelt_for_partition_window(
     *,
     partition_start: datetime,
     partition_end: datetime,
+    include_canonical_hourly: bool = False,
 ) -> tuple[list[dict[str, str]], str]:
     last_err: FileNotFoundError | None = None
     for bucket in _candidate_buckets():
@@ -352,6 +425,26 @@ def list_raw_gdelt_for_partition_window(
             keys = _list_window_jsonl_keys(
                 "provider=gdelt", partition_start, partition_end, bucket=bucket
             )
+            if include_canonical_hourly:
+                canonical_key = _canonical_raw_hourly_key(
+                    dataset="provider=gdelt",
+                    partition_start=partition_start,
+                )
+                if canonical_key in keys:
+                    canonical_batch_id = (
+                        f"{partition_start.astimezone(UTC).strftime('%Y%m%dT%H%M%SZ')}_canonical"
+                    )
+                    return (
+                        [
+                            {
+                                "raw_gdelt_timeline": canonical_key,
+                                "source_batch_id": canonical_batch_id,
+                                "source_window_start": "",
+                                "source_window_end": "",
+                            }
+                        ],
+                        bucket,
+                    )
             micro = sorted(k for k in keys if _is_microbatch_non_polymarket_jsonl(k))
             out: list[dict[str, str]] = []
             for chosen in micro:

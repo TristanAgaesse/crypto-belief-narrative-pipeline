@@ -98,6 +98,180 @@ def _dtype_matches(actual: Any, expected: Any) -> bool:
     return False
 
 
+BRONZE_POLYMARKET_MARKETS = DatasetContract(
+    name="bronze_polymarket_markets",
+    required_columns=frozenset(
+        {
+            "market_id",
+            "question",
+            "slug",
+            "category",
+            "active",
+            "closed",
+            "end_date",
+            "liquidity",
+            "volume",
+            "raw_json",
+            "ingested_at",
+            "load_timestamp",
+        }
+    ),
+    dtypes={
+        "market_id": pl.String,
+        "question": pl.String,
+        "slug": pl.String,
+        "category": pl.String,
+        "active": pl.Boolean,
+        "closed": pl.Boolean,
+        "end_date": pl.Datetime,
+        "liquidity": pl.Float64,
+        "volume": pl.Float64,
+        "raw_json": pl.String,
+        "ingested_at": pl.Datetime,
+        "load_timestamp": pl.Datetime,
+    },
+    non_null_columns=frozenset({"market_id", "raw_json", "ingested_at", "load_timestamp"}),
+    unique_key=("market_id",),
+)
+
+BRONZE_POLYMARKET_PRICES = DatasetContract(
+    name="bronze_polymarket_prices",
+    required_columns=frozenset(
+        {
+            "timestamp",
+            "market_id",
+            "outcome",
+            "price",
+            "best_bid",
+            "best_ask",
+            "spread",
+            "liquidity",
+            "volume",
+            "raw_json",
+            "ingested_at",
+            "load_timestamp",
+        }
+    ),
+    dtypes={
+        "timestamp": pl.Datetime,
+        "market_id": pl.String,
+        "outcome": pl.String,
+        "price": pl.Float64,
+        "best_bid": pl.Float64,
+        "best_ask": pl.Float64,
+        "spread": pl.Float64,
+        "liquidity": pl.Float64,
+        "volume": pl.Float64,
+        "raw_json": pl.String,
+        "ingested_at": pl.Datetime,
+        "load_timestamp": pl.Datetime,
+    },
+    non_null_columns=frozenset(
+        {"timestamp", "market_id", "outcome", "price", "raw_json", "ingested_at", "load_timestamp"}
+    ),
+    unique_key=("timestamp", "market_id", "outcome"),
+)
+
+BRONZE_BINANCE_KLINES = DatasetContract(
+    name="bronze_binance_klines",
+    required_columns=frozenset(
+        {
+            "timestamp",
+            "exchange",
+            "symbol",
+            "interval",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "quote_volume",
+            "number_of_trades",
+            "raw_json",
+            "ingested_at",
+            "load_timestamp",
+        }
+    ),
+    dtypes={
+        "timestamp": pl.Datetime,
+        "exchange": pl.String,
+        "symbol": pl.String,
+        "interval": pl.String,
+        "open": pl.Float64,
+        "high": pl.Float64,
+        "low": pl.Float64,
+        "close": pl.Float64,
+        "volume": pl.Float64,
+        "quote_volume": pl.Float64,
+        "number_of_trades": pl.Int64,
+        "raw_json": pl.String,
+        "ingested_at": pl.Datetime,
+        "load_timestamp": pl.Datetime,
+    },
+    non_null_columns=frozenset(
+        {
+            "timestamp",
+            "exchange",
+            "symbol",
+            "interval",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "quote_volume",
+            "number_of_trades",
+            "raw_json",
+            "ingested_at",
+            "load_timestamp",
+        }
+    ),
+    unique_key=("timestamp", "symbol", "interval"),
+    allowed_values={"exchange": frozenset({"binance_usdm"})},
+)
+
+BRONZE_GDELT_TIMELINE = DatasetContract(
+    name="bronze_gdelt_timeline",
+    required_columns=frozenset(
+        {
+            "timestamp",
+            "narrative",
+            "query",
+            "mention_volume",
+            "avg_tone",
+            "source",
+            "raw_json",
+            "ingested_at",
+            "load_timestamp",
+        }
+    ),
+    dtypes={
+        "timestamp": pl.Datetime,
+        "narrative": pl.String,
+        "query": pl.String,
+        "mention_volume": pl.Float64,
+        "avg_tone": pl.Float64,
+        "source": pl.String,
+        "raw_json": pl.String,
+        "ingested_at": pl.Datetime,
+        "load_timestamp": pl.Datetime,
+    },
+    non_null_columns=frozenset(
+        {
+            "timestamp",
+            "narrative",
+            "query",
+            "mention_volume",
+            "source",
+            "raw_json",
+            "ingested_at",
+            "load_timestamp",
+        }
+    ),
+    unique_key=("timestamp", "narrative", "query", "source"),
+    allowed_values={"source": frozenset({"gdelt"})},
+)
+
 SILVER_BELIEF_PRICE_SNAPSHOTS = DatasetContract(
     name="silver_belief_price_snapshots",
     required_columns=frozenset(
@@ -219,6 +393,10 @@ GOLD_LIVE_SIGNALS = DatasetContract(
 )
 
 __all__ = [
+    "BRONZE_BINANCE_KLINES",
+    "BRONZE_GDELT_TIMELINE",
+    "BRONZE_POLYMARKET_MARKETS",
+    "BRONZE_POLYMARKET_PRICES",
     "DatasetContract",
     "SILVER_BELIEF_PRICE_SNAPSHOTS",
     "SILVER_CRYPTO_CANDLES_1M",

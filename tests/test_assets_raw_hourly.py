@@ -55,10 +55,10 @@ def test_raw_binance_hourly_falls_back_to_api_when_staging_missing(monkeypatch) 
         _collect,
     )
 
-    writes: list[tuple[list[dict], str]] = []
+    writes: list[tuple[list[dict], str, str | None]] = []
 
     def _write_jsonl_records(records, key, bucket=None):
-        writes.append((list(records), key))
+        writes.append((list(records), key, bucket))
 
     monkeypatch.setattr(
         "crypto_belief_pipeline.orchestration.assets_raw.write_jsonl_records",
@@ -74,6 +74,7 @@ def test_raw_binance_hourly_falls_back_to_api_when_staging_missing(monkeypatch) 
     assert out["raw_binance_klines"].endswith("/partition=2026-05-07-11-00/data.jsonl")
     assert writes[0][1] == out["raw_binance_klines"]
     assert writes[0][0] == [{"symbol": "BTCUSDT", "open_time": "2026-05-07T11:00:00Z"}]
+    assert writes[0][2] == "lake"
     assert ctx.metadata
     assert ctx.metadata[-1]["data_source"] == "api_backfill"
     assert ctx.metadata[-1]["fallback_triggered_for_missing_microbatches"] is True
@@ -150,10 +151,10 @@ def test_raw_gdelt_hourly_falls_back_to_api_when_staging_missing(monkeypatch) ->
         _collect,
     )
 
-    writes: list[tuple[list[dict], str]] = []
+    writes: list[tuple[list[dict], str, str | None]] = []
 
     def _write_jsonl_records(records, key, bucket=None):
-        writes.append((list(records), key))
+        writes.append((list(records), key, bucket))
 
     monkeypatch.setattr(
         "crypto_belief_pipeline.orchestration.assets_raw.write_jsonl_records",
@@ -166,6 +167,7 @@ def test_raw_gdelt_hourly_falls_back_to_api_when_staging_missing(monkeypatch) ->
     assert called_end == end
     assert len(writes) == 1
     assert out["raw_gdelt_timeline"].endswith("/partition=2026-05-07-11-00/data.jsonl")
+    assert writes[0][2] == "lake"
     assert ctx.metadata
     assert ctx.metadata[-1]["data_source"] == "api_backfill"
     assert ctx.metadata[-1]["fallback_triggered_for_missing_microbatches"] is True
@@ -223,10 +225,10 @@ def test_raw_polymarket_hourly_falls_back_to_api_when_staging_missing(monkeypatc
         _collect,
     )
 
-    writes: list[tuple[list[dict], str]] = []
+    writes: list[tuple[list[dict], str, str | None]] = []
 
     def _write_jsonl_records(records, key, bucket=None):
-        writes.append((list(records), key))
+        writes.append((list(records), key, bucket))
 
     monkeypatch.setattr(
         "crypto_belief_pipeline.orchestration.assets_raw.write_jsonl_records",
@@ -244,6 +246,8 @@ def test_raw_polymarket_hourly_falls_back_to_api_when_staging_missing(monkeypatc
     assert "provider=polymarket_prices" in out["raw_polymarket_prices"]
     assert out["raw_polymarket_markets"].endswith("/partition=2026-05-07-11-00/data.jsonl")
     assert out["raw_polymarket_prices"].endswith("/partition=2026-05-07-11-00/data.jsonl")
+    assert writes[0][2] == "lake"
+    assert writes[1][2] == "lake"
     assert ctx.metadata
     assert ctx.metadata[-1]["data_source"] == "api_backfill"
     assert ctx.metadata[-1]["fallback_triggered_for_missing_microbatches"] is True

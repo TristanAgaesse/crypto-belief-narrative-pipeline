@@ -7,7 +7,7 @@ from datetime import UTC, datetime, timedelta
 from crypto_belief_pipeline.collectors.binance import collect_binance_raw
 from crypto_belief_pipeline.collectors.gdelt import collect_gdelt_raw_window
 from crypto_belief_pipeline.collectors.polymarket import collect_polymarket_raw
-from crypto_belief_pipeline.config import get_runtime_config
+from crypto_belief_pipeline.config import get_runtime_config, get_settings
 from crypto_belief_pipeline.lake.batches import generate_batch_id, split_batch_parts
 from crypto_belief_pipeline.lake.paths import microbatch_key, partition_path
 from crypto_belief_pipeline.lake.write import write_jsonl_records
@@ -193,6 +193,7 @@ def raw_polymarket_staging(context) -> dict[str, str]:
     )
     write_jsonl_records(markets, markets_key)
     write_jsonl_records(prices, prices_key)
+    lake_bucket = get_settings().s3_bucket
 
     written = {
         "raw_polymarket_markets": markets_key,
@@ -200,6 +201,7 @@ def raw_polymarket_staging(context) -> dict[str, str]:
         "source_batch_id": batch_id,
         "source_window_start": str(pm_meta.get("start_time") or ""),
         "source_window_end": str(pm_meta.get("end_time") or ""),
+        "lake_bucket": lake_bucket,
     }
     context.add_output_metadata(
         {
@@ -254,12 +256,14 @@ def raw_binance_staging(context) -> dict[str, str]:
     klines, bn_meta = collect_binance_raw(limit=1000, start_time=start_time, end_time=end_time)
     key = microbatch_key("raw", "provider=binance", parts.date, parts.hour, batch_id, ".jsonl")
     write_jsonl_records(klines, key)
+    lake_bucket = get_settings().s3_bucket
 
     written = {
         "raw_binance_klines": key,
         "source_batch_id": batch_id,
         "source_window_start": str(bn_meta.get("start_time") or ""),
         "source_window_end": str(bn_meta.get("end_time") or ""),
+        "lake_bucket": lake_bucket,
     }
     context.add_output_metadata(
         {
@@ -315,12 +319,14 @@ def raw_gdelt_staging(context) -> dict[str, str]:
     timeline, gd_meta = collect_gdelt_raw_window(start_time=start_time, end_time=end_time)
     key = microbatch_key("raw", "provider=gdelt", parts.date, parts.hour, batch_id, ".jsonl")
     write_jsonl_records(timeline, key)
+    lake_bucket = get_settings().s3_bucket
 
     written = {
         "raw_gdelt_timeline": key,
         "source_batch_id": batch_id,
         "source_window_start": str(gd_meta.get("start_time") or ""),
         "source_window_end": str(gd_meta.get("end_time") or ""),
+        "lake_bucket": lake_bucket,
     }
     context.add_output_metadata(
         {
@@ -400,14 +406,15 @@ def raw_polymarket_hourly(context) -> dict[str, str]:
         run_date=run_date,
         partition_key=partition_window.partition_key,
     )
-    write_jsonl_records(markets, markets_key)
-    write_jsonl_records(prices, prices_key)
+    write_jsonl_records(markets, markets_key, bucket=read_bucket)
+    write_jsonl_records(prices, prices_key, bucket=read_bucket)
     written = {
         "raw_polymarket_markets": markets_key,
         "raw_polymarket_prices": prices_key,
         "source_batch_id": last_batch_id,
         "source_window_start": partition_window.start.isoformat(),
         "source_window_end": partition_window.end.isoformat(),
+        "lake_bucket": read_bucket,
     }
     context.add_output_metadata(
         {
@@ -471,12 +478,13 @@ def raw_binance_hourly(context) -> dict[str, str]:
         run_date=run_date,
         partition_key=partition_window.partition_key,
     )
-    write_jsonl_records(klines, out_key)
+    write_jsonl_records(klines, out_key, bucket=read_bucket)
     written = {
         "raw_binance_klines": out_key,
         "source_batch_id": last_batch_id,
         "source_window_start": partition_window.start.isoformat(),
         "source_window_end": partition_window.end.isoformat(),
+        "lake_bucket": read_bucket,
     }
     context.add_output_metadata(
         {
@@ -517,12 +525,13 @@ def raw_gdelt_hourly(context) -> dict[str, str]:
         cadence_seconds=int(rt.cadence.gdelt_seconds),
     )
     fetched_from_api = False
+    gd_meta: dict = {}
     if candidates and not fallback_for_missing:
         keys = [it["raw_gdelt_timeline"] for it in candidates]
         timeline = _records_for_hour_window(keys, bucket=read_bucket)
         last_batch_id = candidates[-1]["source_batch_id"] if candidates else ""
     else:
-        timeline, _gd_meta = collect_gdelt_raw_window(
+        timeline, gd_meta = collect_gdelt_raw_window(
             start_time=partition_window.start,
             end_time=partition_window.end,
         )
@@ -536,26 +545,39 @@ def raw_gdelt_hourly(context) -> dict[str, str]:
         run_date=run_date,
         partition_key=partition_window.partition_key,
     )
-    write_jsonl_records(timeline, out_key)
+    write_jsonl_records(timeline, out_key, bucket=read_bucket)
     written = {
         "raw_gdelt_timeline": out_key,
         "source_batch_id": last_batch_id,
         "source_window_start": partition_window.start.isoformat(),
         "source_window_end": partition_window.end.isoformat(),
+        "lake_bucket": read_bucket,
     }
-    context.add_output_metadata(
-        {
-            "run_date": run_date.isoformat(),
-            "window_start_utc": partition_window.start.isoformat(),
-            "window_end_utc": partition_window.end.isoformat(),
-            "window_closed_open": "[start,end)",
-            "input_microbatches_seen": len(candidates),
-            "input_microbatches_processed": len(candidates),
-            "rows": len(timeline),
-            "data_source": "api_backfill" if fetched_from_api else "staging_compaction",
-            "fallback_triggered_for_missing_microbatches": bool(fallback_for_missing),
-        }
-    )
+    meta_out: dict[str, object] = {
+        "run_date": run_date.isoformat(),
+        "window_start_utc": partition_window.start.isoformat(),
+        "window_end_utc": partition_window.end.isoformat(),
+        "window_closed_open": "[start,end)",
+        "input_microbatches_seen": len(candidates),
+        "input_microbatches_processed": len(candidates),
+        "rows": len(timeline),
+        "data_source": "api_backfill" if fetched_from_api else "staging_compaction",
+        "fallback_triggered_for_missing_microbatches": bool(fallback_for_missing),
+    }
+    if fetched_from_api and gd_meta:
+        meta_out["gdelt_collection"] = MetadataValue.json(
+            {
+                k: gd_meta.get(k)
+                for k in (
+                    "gdelt_narratives_attempted",
+                    "gdelt_narratives_failed",
+                    "gdelt_failure_details",
+                    "records",
+                )
+                if k in gd_meta
+            }
+        )
+    context.add_output_metadata(meta_out)
     return written
 
 

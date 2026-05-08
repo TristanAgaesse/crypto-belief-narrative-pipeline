@@ -78,6 +78,70 @@ def test_list_binance_for_partition_window_filters_range(monkeypatch) -> None:
     assert out[0]["raw_binance_klines"].endswith("20260507T110000Z.jsonl")
 
 
+def test_list_binance_for_partition_window_prefers_canonical_hourly(monkeypatch) -> None:
+    canonical = "raw/provider=binance/date=2026-05-07/partition=2026-05-07-11-00/data.jsonl"
+    micro = "raw/provider=binance/date=2026-05-07/hour=11/batch_id=20260507T110000Z.jsonl"
+    keys = [micro, canonical]
+    monkeypatch.setattr(ri, "list_jsonl_keys_under", lambda prefix, bucket=None: list(keys))
+    monkeypatch.setattr(ri, "_candidate_buckets", lambda: ["lake"])
+    out, bucket = ri.list_raw_binance_for_partition_window(
+        partition_start=datetime(2026, 5, 7, 11, 0, 0, tzinfo=UTC),
+        partition_end=datetime(2026, 5, 7, 12, 0, 0, tzinfo=UTC),
+        include_canonical_hourly=True,
+    )
+    assert bucket == "lake"
+    assert len(out) == 1
+    assert out[0]["raw_binance_klines"] == canonical
+    assert out[0]["source_batch_id"].endswith("_canonical")
+
+
+def test_list_gdelt_for_partition_window_prefers_canonical_hourly(monkeypatch) -> None:
+    canonical = "raw/provider=gdelt/date=2026-05-07/partition=2026-05-07-11-00/data.jsonl"
+    micro = "raw/provider=gdelt/date=2026-05-07/hour=11/batch_id=20260507T110000Z.jsonl"
+    keys = [micro, canonical]
+    monkeypatch.setattr(ri, "list_jsonl_keys_under", lambda prefix, bucket=None: list(keys))
+    monkeypatch.setattr(ri, "_candidate_buckets", lambda: ["lake"])
+    out, bucket = ri.list_raw_gdelt_for_partition_window(
+        partition_start=datetime(2026, 5, 7, 11, 0, 0, tzinfo=UTC),
+        partition_end=datetime(2026, 5, 7, 12, 0, 0, tzinfo=UTC),
+        include_canonical_hourly=True,
+    )
+    assert bucket == "lake"
+    assert len(out) == 1
+    assert out[0]["raw_gdelt_timeline"] == canonical
+    assert out[0]["source_batch_id"].endswith("_canonical")
+
+
+def test_list_polymarket_for_partition_window_prefers_canonical_hourly(monkeypatch) -> None:
+    mk = "raw/provider=polymarket_markets/date=2026-05-07/partition=2026-05-07-11-00/data.jsonl"
+    pk = "raw/provider=polymarket_prices/date=2026-05-07/partition=2026-05-07-11-00/data.jsonl"
+
+    def _list(prefix, bucket=None):
+        if "provider=polymarket_markets" in prefix:
+            return [mk]
+        if "provider=polymarket_prices" in prefix:
+            return [pk]
+        if "provider=polymarket" in prefix:
+            return [
+                "raw/provider=polymarket/date=2026-05-07/hour=11/batch_id=20260507T110000Z_markets.jsonl",
+                "raw/provider=polymarket/date=2026-05-07/hour=11/batch_id=20260507T110000Z_prices.jsonl",
+            ]
+        return []
+
+    monkeypatch.setattr(ri, "list_jsonl_keys_under", _list)
+    monkeypatch.setattr(ri, "_candidate_buckets", lambda: ["lake"])
+    out, bucket = ri.list_raw_polymarket_for_partition_window(
+        partition_start=datetime(2026, 5, 7, 11, 0, 0, tzinfo=UTC),
+        partition_end=datetime(2026, 5, 7, 12, 0, 0, tzinfo=UTC),
+        include_canonical_hourly=True,
+    )
+    assert bucket == "lake"
+    assert len(out) == 1
+    assert out[0]["raw_polymarket_markets"] == mk
+    assert out[0]["raw_polymarket_prices"] == pk
+    assert out[0]["source_batch_id"].endswith("_canonical")
+
+
 def test_unseen_raw_inputs_uses_watermark(monkeypatch) -> None:
     class _WM:
         last_processed_batch_id = "20260507T110000Z"
