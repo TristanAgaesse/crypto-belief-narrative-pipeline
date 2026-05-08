@@ -1,0 +1,39 @@
+---
+description: How to add a new source end-to-end (raw→bronze→silver→orchestration)
+globs: src/crypto_belief_pipeline/{collectors,transform}/**/*.py
+alwaysApply: false
+---
+
+# New source integration (checklist)
+
+## Goal
+
+Add a new source without breaking determinism, partitions, or lake hygiene.
+
+## Required pipeline shape
+
+- **Collector**: add live API collector under `src/crypto_belief_pipeline/collectors/`.
+  - Ensure it can emit the **same raw JSONL contract** as any sample/deterministic path (when applicable).
+- **Raw staging asset** (minute): append-only microbatches under `raw/provider=<source>/date=.../hour=HH/batch_id=...`.
+- **Canonical raw asset** (hourly): compact microbatches for the hour, with **API fallback** if the hour is incomplete.
+- **Bronze asset** (hourly): normalize raw JSONL into typed, source-shaped Parquet and write a **processing watermark** if you want `processing_gaps` coverage.
+- **Silver asset** (hourly): create/extend a research-ready table and validate it with a `DatasetContract` before writing.
+
+## Source selection safety
+
+- If a CLI/Dagster path supports `--sources`-style selection, **skipped sources must not be read** (no stale mixing).
+- Any new source should fit the same “explicitly processed vs explicitly skipped” semantics.
+
+## Where wiring usually lives
+
+- **Orchestration**: `src/crypto_belief_pipeline/orchestration/assets_raw.py`, `assets_transform.py`, `assets.py`, `jobs.py`, `schedules.py`.
+- **Runtime cadence**: `config/runtime.yaml` (cadence knobs should be config-driven, not hard-coded).
+
+## Required updates when adding a source
+
+- Add tests that cover:
+  - partition key format expectations (minute/hour),
+  - source-selection “no stale mixing” behavior (if applicable),
+  - canonical key layout for new outputs.
+- Update `docs/dagster_jobs.md` job map if you add new jobs/schedules.
+

@@ -1,0 +1,26 @@
+---
+description: Keep docs, tests, and deploy/runbooks aligned with pipeline behavior
+globs: {tests/**/*.py,docs/**/*.md,scripts/**/*.sh,Makefile,docker-compose.yml}
+alwaysApply: false
+---
+
+# Tests and runbook sync
+
+## When you must update docs
+
+- If you change jobs/schedules/partitions, update `docs/dagster_jobs.md` (naming, partition model, job map, backfill runbook).
+- If you change deploy behavior, update `docs/deploy.md` and keep `scripts/deploy_dagster.sh` usage accurate.
+
+## When you must update tests
+
+- **Partition semantics**: changing minute/hour key rules requires updating partition-key tests.
+- **Lake layout**: changing canonical key paths requires updating key-layout tests.
+- **Contract/schema**: changing silver/gold schemas requires updating contract tests (and the contracts themselves).
+- **Source selection**: changing `--sources` semantics requires tests that prove skipped sources are not read.
+
+## Non-negotiable invariants the tests should keep enforcing
+
+- Minute schedules map to the **previous completed minute** (not the in-progress minute window).
+- Silver contracts validate **before write**, so bad schema changes fail fast.
+- Runs that skip sources do not accidentally read stale artifacts from skipped sources.
+

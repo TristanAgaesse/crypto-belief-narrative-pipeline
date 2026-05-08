@@ -1,0 +1,35 @@
+---
+description: Dagster assets/jobs/schedules conventions (partitions, naming, backfill)
+globs: src/crypto_belief_pipeline/orchestration/**/*.py
+alwaysApply: false
+---
+
+# Dagster orchestration and partitions
+
+## Naming
+
+- **Jobs**: follow `docs/dagster_jobs.md`: `<layer_scope>__<domain_or_source>__<cadence>_job`.
+- **Schedules**: same stem: `<layer_scope>__<domain_or_source>__<cadence>_schedule`.
+
+## Partition strategy (do not blur tiers)
+
+- **Tier 1 staging**: minute-partitioned, **append-only** ingest assets (raw staging).
+  - Schedules must anchor to the **last completed minute** (avoid windows ending “in the future”).
+- **Tier 2 canonical**: hourly-partitioned, **recomputable** assets across layers (raw→bronze→silver→gold→quality→reports).
+  - Canonical runs overwrite the hourly partition outputs deterministically.
+
+## Window semantics
+
+- Treat all windows as **UTC** and **[start,end)**.
+- For canonical hourly raw, ensure metadata includes `window_start_utc`, `window_end_utc`, and whether it was `staging_compaction` vs `api_backfill`.
+
+## Backfill / incomplete-hour behavior
+
+- Canonical hourly raw assets may compact staging microbatches **or** fetch via API fallback when expected microbatch slots are missing.
+- If you change fallback logic, update the operational contract in `docs/dagster_jobs.md`.
+
+## Partition-compatible jobs
+
+- Dagster asset jobs must select assets with the **same partitions definition**.
+- If you need a “full stack” job, provide partition-compatible manual entrypoints (don’t mix minute + hourly in one job).
+

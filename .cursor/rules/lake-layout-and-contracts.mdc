@@ -1,0 +1,28 @@
+---
+description: Lake key layout, sample bucket isolation, and contract validation rules
+globs: src/crypto_belief_pipeline/**/*.py
+alwaysApply: false
+---
+
+# Lake layout and contracts
+
+## Key layout (don’t invent ad hoc paths)
+
+- Use `lake/paths.py` helpers (`partition_path`, `microbatch_dir`, `microbatch_key`).
+- Keys are `{layer}/{dataset}/date=YYYY-MM-DD/...` with `layer ∈ {raw, bronze, silver, gold}`.
+- Prefer existing read helpers for partitions (they intentionally tolerate both `data.parquet` and shard/glob layouts).
+
+## Sample isolation policy
+
+- Sample mode must be isolated by **bucket**, not by key prefix.
+- Any function that writes to the lake must accept a bucket override and thread it through to every downstream write.
+
+## Contracts (fail fast)
+
+- Any **silver** table must be validated against a `DatasetContract` immediately before writing.
+- If you add a new silver/gold dataset, add or update its `DatasetContract` in `contracts.py` (required cols, dtypes, non-null, unique key, allowed values).
+
+## DQ integration expectations
+
+- Soda/DuckDB external views read Parquet directly from the lake; if you change table paths/layouts, update `dq/duckdb_views.py` and/or `dq/checks/*.yml` accordingly.
+

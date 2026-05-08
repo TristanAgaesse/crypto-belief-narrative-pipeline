@@ -1,0 +1,22 @@
+---
+description: Thread resolved lake bucket through reads, writes, and watermarks (no cross-bucket drift)
+globs: {src/crypto_belief_pipeline/orchestration/**/*.py,src/crypto_belief_pipeline/state/processing_watermarks.py}
+alwaysApply: false
+---
+
+# Lake bucket threading
+
+## When this applies
+
+Any change that lists raw objects, resolves a `read_bucket`, reads from a non-default bucket, or writes canonical hourly/minute outputs.
+
+## Non-negotiables
+
+- If code **chooses** a bucket (e.g. `_candidate_buckets()`, `list_*_for_partition_window` returning `(keys, bucket)`), then **every** `read_jsonl_records` / `read_parquet_df` / `write_jsonl_records` / `write_parquet_df` for that logical run must use **that same bucket** unless the change explicitly documents a one-way copy (rare).
+- Canonical hourly raw compaction must **write** with `bucket=` equal to the bucket used to **read** microbatches for that hour.
+- Bronze/silver assets that consume upstream dict outputs must pass `bucket=` on reads and writes when upstream carries `lake_bucket` (or equivalent).
+- `read_processing_watermark` / `write_processing_watermark`: when sample or multi-bucket runs are in scope, pass the **same** `bucket=` as the rest of the partition’s I/O (e.g. gap scans, bronze watermarks).
+
+## Tests
+
+- Add or extend tests that assert the **bucket argument** (or captured client calls) matches the resolved bucket when non-default routing is possible.

@@ -1,0 +1,27 @@
+---
+description: DQ and issue detection must read the same Parquet paths the writers emit (incl. hourly partition=)
+globs: {src/crypto_belief_pipeline/dq/**/*.py,src/crypto_belief_pipeline/quality/issues.py,src/crypto_belief_pipeline/orchestration/assets_quality.py,src/crypto_belief_pipeline/features/build_gold.py}
+alwaysApply: false
+---
+
+# DQ / issues / writer layout parity
+
+## When this applies
+
+Any change to:
+
+- `dq/duckdb_views.py` (DuckDB external views),
+- `dq/soda.py` (`run_soda_checks`),
+- `quality/issues.py` (`detect_data_issues`),
+- `orchestration/assets_quality.py` (Soda / data_issues assets),
+- `features/build_gold.py` (gold key layout).
+
+## Non-negotiables
+
+- **Gold**: If Dagster (or any path) writes gold under `.../partition=<hourly-key>/data.parquet`, then Soda views and `detect_data_issues` must resolve that layout when a `partition_key` is in scope—**not** only `.../date=.../data.parquet`.
+- **Silver**: Keep layout-agnostic resolution (e.g. `**/*.parquet` under the date prefix) unless you intentionally drop microbatch support; if you change that, update Soda YAML and tests together.
+- Thread **`partition_key`** from Dagster quality assets into `run_soda_checks` and `detect_data_issues` whenever the materialized gold for that run is partition-scoped.
+
+## Tests
+
+- Extend `tests/test_duckdb_views.py` / `tests/test_data_issues.py` (or add focused tests) so a fixture with **only** partitioned gold files still passes reads—regressions must fail loudly.

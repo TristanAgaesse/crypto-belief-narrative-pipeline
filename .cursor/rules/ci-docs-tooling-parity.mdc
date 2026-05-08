@@ -1,0 +1,21 @@
+---
+description: Makefile and reviewer docs must stay aligned with CI (lint, typecheck, tests)
+globs: {Makefile,.github/workflows/**/*.yml,README.md,docs/reproducibility.md}
+alwaysApply: false
+---
+
+# CI and documentation parity
+
+## When this applies
+
+Any edit to `Makefile`, `.github/workflows/ci.yml` (or other CI workflows), `README.md` reviewer quick path, or `docs/reproducibility.md`.
+
+## Non-negotiables
+
+- **Single source of truth**: CI defines the authoritative quality gate. Local `make` targets must expose the same steps (or a single `make check` that runs them in one command).
+- **No lying command tables**: If README says “lint + typecheck”, that must map to real targets (e.g. separate `lint` and `typecheck`, or one documented aggregate).
+- **Lockfile**: If CI installs from `requirements.lock.txt`, the reproducibility doc should mention that path for contributors who need byte-for-byte parity with CI.
+
+## Cross-check
+
+After changing CI or Make, grep README/reproducibility for stale command names and update in the **same** change.

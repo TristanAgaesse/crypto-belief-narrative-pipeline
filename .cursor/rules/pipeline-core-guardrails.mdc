@@ -1,0 +1,22 @@
+---
+description: Core invariants for this pipeline (time, partitions, lake safety)
+alwaysApply: true
+---
+
+# Pipeline core guardrails
+
+- **Time semantics**: treat all pipeline time as **UTC** and all processing windows as **closed-open** \([start,end)\).
+- **Partition keys**: do not invent new formats. Reuse the existing key families:
+  - minute staging: `YYYY-MM-DDTHH:MM`
+  - hourly canonical: `YYYY-MM-DD-HH:00`
+- **Never write into the wrong lake**:
+  - sample mode isolation is by **bucket**, not key prefix; bucket routing must be threaded through every write.
+- **Lake layout is contractual**: keys are `{layer}/{dataset}/date=YYYY-MM-DD/...` where `layer ∈ {raw, bronze, silver, gold}`.
+- **Determinism over cleverness**:
+  - canonical assets are recomputable per partition and may overwrite outputs for that partition
+  - staging assets are append-only microbatches
+- **No stale mixing**: if a run selects a subset of sources, it must not read or reuse raw/silver from skipped sources.
+- **Contracts fail fast**: if you change a transform output schema, validate at the boundary before writing, or the change is not acceptable.
+- **Operational changes require docs/tests**:
+  - if you change partitions, schedules, job naming, lake key layout, or source-selection behavior, update the relevant docs/tests in the same change.
+
