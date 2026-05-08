@@ -223,6 +223,82 @@ def test_build_gold_normalizes_mixed_timezone_event_time(monkeypatch, tmp_path) 
     assert has_narrative_value
 
 
+def test_build_gold_asof_joins_price_features_for_slightly_late_events(
+    monkeypatch, tmp_path
+) -> None:
+    base_ts = datetime(2026, 5, 6, 10, 0, 30, tzinfo=UTC)
+    belief = pl.DataFrame(
+        {
+            "timestamp": [base_ts, base_ts + timedelta(hours=1)],
+            "platform": ["polymarket"] * 2,
+            "market_id": ["pm_btc_reserve_001"] * 2,
+            "outcome": ["Yes"] * 2,
+            "price": [0.30, 0.45],
+            "best_bid": [0.29, 0.44],
+            "best_ask": [0.31, 0.46],
+            "spread": [0.02, 0.02],
+            "liquidity": [125000.0] * 2,
+            "volume": [800000.0] * 2,
+        }
+    )
+    candles = pl.DataFrame(
+        [
+            {
+                "timestamp": datetime(2026, 5, 6, 10, 0, 0, tzinfo=UTC),
+                "exchange": "binance_usdm",
+                "asset": "BTC",
+                "symbol": "BTCUSDT",
+                "open": 64000.0,
+                "high": 64000.0,
+                "low": 64000.0,
+                "close": 64000.0,
+                "volume": 1.0,
+                "quote_volume": 64000.0,
+                "number_of_trades": 1,
+            },
+            {
+                "timestamp": datetime(2026, 5, 6, 11, 0, 0, tzinfo=UTC),
+                "exchange": "binance_usdm",
+                "asset": "BTC",
+                "symbol": "BTCUSDT",
+                "open": 64100.0,
+                "high": 64100.0,
+                "low": 64100.0,
+                "close": 64100.0,
+                "volume": 1.0,
+                "quote_volume": 64100.0,
+                "number_of_trades": 1,
+            },
+        ]
+    )
+    silver_lookup = {
+        "silver/belief_price_snapshots/date=2026-05-06/data.parquet": belief,
+        "silver/crypto_candles_1m/date=2026-05-06/data.parquet": candles,
+        "silver/narrative_counts/date=2026-05-06/data.parquet": _narrative_silver(),
+    }
+    captured: dict[str, pl.DataFrame] = {}
+
+    monkeypatch.setattr(
+        "crypto_belief_pipeline.lake.read.read_parquet_df",
+        lambda key, bucket=None: silver_lookup[key],
+    )
+    monkeypatch.setattr(
+        bg, "write_parquet_df", lambda df, key, bucket=None: captured.setdefault(key, df)
+    )
+
+    tags_csv = tmp_path / "market_tags.csv"
+    tags_csv.write_text(
+        "market_id,asset,narrative,direction,relevance,confidence,notes\n"
+        "pm_btc_reserve_001,BTC,bitcoin_reserve,1,high,0.9,sample\n"
+    )
+
+    bg.build_gold_tables(run_date="2026-05-06", market_tags_path=tags_csv)
+
+    training = captured["gold/training_examples/date=2026-05-06/data.parquet"]
+    assert training["asset_close"][0] == 64000.0
+    assert training["price_feature_age"][0] == timedelta(seconds=30)
+
+
 def test_build_gold_duplicate_silver_narrative_does_not_explode_cardinality(
     monkeypatch, tmp_path
 ) -> None:

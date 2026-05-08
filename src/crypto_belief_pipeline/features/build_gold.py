@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import polars as pl
@@ -24,12 +24,16 @@ from crypto_belief_pipeline.lake.paths import partition_path
 from crypto_belief_pipeline.lake.read import read_parquet_df, read_parquet_partition_df
 from crypto_belief_pipeline.lake.write import write_parquet_df
 
+_PRICE_FEATURE_JOIN_TOLERANCE = timedelta(minutes=2)
+
 
 def _safe_partition_slug(partition_key: str) -> str:
     return partition_key.replace(":", "-")
 
 
-def _partition_parquet_key(layer: str, dataset: str, run_date: date | str, partition_key: str) -> str:
+def _partition_parquet_key(
+    layer: str, dataset: str, run_date: date | str, partition_key: str
+) -> str:
     prefix = partition_path(layer, dataset, run_date)
     return f"{prefix}/partition={_safe_partition_slug(partition_key)}/data.parquet"
 
@@ -48,6 +52,30 @@ def _normalize_event_time_utc(df: pl.DataFrame) -> pl.DataFrame:
     if tz is None:
         return df.with_columns(pl.col("event_time").dt.replace_time_zone("UTC"))
     return df.with_columns(pl.col("event_time").dt.convert_time_zone("UTC"))
+
+
+def _join_price_features_asof(events: pl.DataFrame, price_features: pl.DataFrame) -> pl.DataFrame:
+    """Attach price features using the latest candle feature near each event time."""
+
+    if events.is_empty() or price_features.is_empty():
+        return events.join(price_features, on=["event_time", "asset"], how="left")
+
+    right = price_features.with_columns(
+        pl.col("event_time").alias("price_feature_source_time")
+    ).sort(["asset", "event_time"])
+    return (
+        events.sort(["asset", "event_time"])
+        .join_asof(
+            right,
+            on="event_time",
+            by="asset",
+            strategy="backward",
+            tolerance=_PRICE_FEATURE_JOIN_TOLERANCE,
+        )
+        .with_columns(
+            (pl.col("event_time") - pl.col("price_feature_source_time")).alias("price_feature_age")
+        )
+    )
 
 
 def _gold_keys(run_date: date | str, partition_key: str | None = None) -> tuple[str, str]:
@@ -92,8 +120,12 @@ def build_gold_tables(
         belief_fallback = _partition_parquet_key(
             "silver", "belief_price_snapshots", run_date, partition_key
         )
-        candles_fallback = _partition_parquet_key("silver", "crypto_candles_1m", run_date, partition_key)
-        narrative_fallback = _partition_parquet_key("silver", "narrative_counts", run_date, partition_key)
+        candles_fallback = _partition_parquet_key(
+            "silver", "crypto_candles_1m", run_date, partition_key
+        )
+        narrative_fallback = _partition_parquet_key(
+            "silver", "narrative_counts", run_date, partition_key
+        )
         belief_silver = read_parquet_df(belief_key or belief_fallback, bucket=bucket)
         candles_silver = read_parquet_df(candles_key or candles_fallback, bucket=bucket)
         narrative_silver = read_parquet_df(narrative_key or narrative_fallback, bucket=bucket)
@@ -140,9 +172,12 @@ def build_gold_tables(
     if all(c in price_features.columns for c in price_subset):
         price_features = price_features.unique(subset=price_subset, keep="last")
 
-    joined = belief_features.join(
-        narrative_features, on=["event_time", "narrative"], how="left"
-    ).join(price_features, on=["event_time", "asset"], how="left")
+    narrative_subset = ["event_time", "narrative"]
+    if all(c in narrative_features.columns for c in narrative_subset):
+        narrative_features = narrative_features.unique(subset=narrative_subset, keep="last")
+
+    joined = belief_features.join(narrative_features, on=["event_time", "narrative"], how="left")
+    joined = _join_price_features_asof(joined, price_features)
 
     with_labels = add_directional_labels(joined)
     with_pen = add_penalties(with_labels)

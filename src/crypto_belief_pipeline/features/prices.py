@@ -1,17 +1,21 @@
 from __future__ import annotations
 
+from datetime import timedelta
+from typing import Literal
+
 import polars as pl
+
+_PRICE_ASOF_TOLERANCE = timedelta(minutes=2)
 
 
 def build_price_features(candles: pl.DataFrame) -> pl.DataFrame:
-    """Build past- and forward-return features per asset using exact timestamp joins.
+    """Build past- and forward-return features per asset using bounded as-of joins.
 
     For each candle row at time ``t``, we compute close prices at ``t-1h``,
-    ``t-4h``, ``t+1h``, ``t+4h`` and ``t+24h`` via self-joins on
-    ``(asset, timestamp)``. If a target timestamp does not exist in the input,
-    the corresponding column is null. This is sufficient for the MVP because
-    Binance 1m candles plus the extended sample data align on whole hours; a
-    later step can add as-of joins for irregular event times.
+    ``t-4h``, ``t+1h``, ``t+4h`` and ``t+24h``. Past features use the latest
+    candle at or before the target lag; labels use the earliest candle at or
+    after the target horizon. Both directions are bounded by a small tolerance
+    so sparse data does not silently attach stale prices.
     """
 
     if candles.is_empty():
@@ -37,88 +41,58 @@ def build_price_features(candles: pl.DataFrame) -> pl.DataFrame:
         pl.col("close"),
     )
 
-    joined = (
-        base.join(
-            lookup.rename(
-                {
-                    "timestamp": "event_time_minus_1h",
-                    "close": "asset_close_lag_1h",
-                }
-            ),
-            on=["asset", "event_time_minus_1h"],
-            how="left",
-        )
-        .join(
-            lookup.rename(
-                {
-                    "timestamp": "event_time_minus_4h",
-                    "close": "asset_close_lag_4h",
-                }
-            ),
-            on=["asset", "event_time_minus_4h"],
-            how="left",
-        )
-        .join(
-            lookup.rename(
-                {
-                    "timestamp": "event_time_plus_1h",
-                    "close": "future_close_1h",
-                }
-            ),
-            on=["asset", "event_time_plus_1h"],
-            how="left",
-        )
-        .join(
-            lookup.rename(
-                {
-                    "timestamp": "event_time_plus_4h",
-                    "close": "future_close_4h",
-                }
-            ),
-            on=["asset", "event_time_plus_4h"],
-            how="left",
-        )
-        .join(
-            lookup.rename(
-                {
-                    "timestamp": "event_time_plus_24h",
-                    "close": "future_close_24h",
-                }
-            ),
-            on=["asset", "event_time_plus_24h"],
-            how="left",
-        )
+    joined = _join_close_asof(
+        base,
+        lookup,
+        target_col="event_time_minus_1h",
+        close_col="asset_close_lag_1h",
+        source_time_col="asset_close_lag_1h_source_time",
+        strategy="backward",
+    )
+    joined = _join_close_asof(
+        joined,
+        lookup,
+        target_col="event_time_minus_4h",
+        close_col="asset_close_lag_4h",
+        source_time_col="asset_close_lag_4h_source_time",
+        strategy="backward",
+    )
+    joined = _join_close_asof(
+        joined,
+        lookup,
+        target_col="event_time_plus_1h",
+        close_col="future_close_1h",
+        source_time_col="future_close_1h_source_time",
+        strategy="forward",
+    )
+    joined = _join_close_asof(
+        joined,
+        lookup,
+        target_col="event_time_plus_4h",
+        close_col="future_close_4h",
+        source_time_col="future_close_4h_source_time",
+        strategy="forward",
+    )
+    joined = _join_close_asof(
+        joined,
+        lookup,
+        target_col="event_time_plus_24h",
+        close_col="future_close_24h",
+        source_time_col="future_close_24h_source_time",
+        strategy="forward",
     )
 
-    # PIT audit: with exact joins, the chosen source timestamp equals the target timestamp
-    # when present.
     with_audit = joined.with_columns(
-        pl.when(pl.col("asset_close_lag_1h").is_not_null())
-        .then(pl.col("event_time_minus_1h"))
-        .otherwise(None)
-        .alias("asset_close_lag_1h_source_time"),
-        pl.when(pl.col("asset_close_lag_4h").is_not_null())
-        .then(pl.col("event_time_minus_4h"))
-        .otherwise(None)
-        .alias("asset_close_lag_4h_source_time"),
-        pl.when(pl.col("future_close_1h").is_not_null())
-        .then(pl.col("event_time_plus_1h"))
-        .otherwise(None)
-        .alias("future_close_1h_source_time"),
-        pl.when(pl.col("future_close_4h").is_not_null())
-        .then(pl.col("event_time_plus_4h"))
-        .otherwise(None)
-        .alias("future_close_4h_source_time"),
-        pl.when(pl.col("future_close_24h").is_not_null())
-        .then(pl.col("event_time_plus_24h"))
-        .otherwise(None)
-        .alias("future_close_24h_source_time"),
-    ).with_columns(
         (pl.col("event_time") - pl.col("asset_close_lag_1h_source_time")).alias(
             "asset_close_lag_1h_age"
         ),
         (pl.col("event_time") - pl.col("asset_close_lag_4h_source_time")).alias(
             "asset_close_lag_4h_age"
+        ),
+        (pl.col("future_close_1h_source_time") - pl.col("event_time")).alias("future_close_1h_age"),
+        (pl.col("future_close_4h_source_time") - pl.col("event_time")).alias("future_close_4h_age"),
+        (pl.col("future_close_24h_source_time") - pl.col("event_time")).alias(
+            "future_close_24h_age"
         ),
     )
 
@@ -148,9 +122,34 @@ def build_price_features(candles: pl.DataFrame) -> pl.DataFrame:
         "future_close_1h_source_time",
         "future_close_4h_source_time",
         "future_close_24h_source_time",
+        "future_close_1h_age",
+        "future_close_4h_age",
+        "future_close_24h_age",
         "future_ret_1h",
         "future_ret_4h",
         "future_ret_24h",
+    )
+
+
+def _join_close_asof(
+    left: pl.DataFrame,
+    lookup: pl.DataFrame,
+    *,
+    target_col: str,
+    close_col: str,
+    source_time_col: str,
+    strategy: Literal["backward", "forward"],
+) -> pl.DataFrame:
+    right = lookup.rename({"timestamp": source_time_col, "close": close_col}).sort(
+        ["asset", source_time_col]
+    )
+    return left.sort(["asset", target_col]).join_asof(
+        right,
+        left_on=target_col,
+        right_on=source_time_col,
+        by="asset",
+        strategy=strategy,
+        tolerance=_PRICE_ASOF_TOLERANCE,
     )
 
 
@@ -174,6 +173,9 @@ def _empty_output() -> pl.DataFrame:
             "future_close_1h_source_time": pl.Datetime,
             "future_close_4h_source_time": pl.Datetime,
             "future_close_24h_source_time": pl.Datetime,
+            "future_close_1h_age": pl.Duration,
+            "future_close_4h_age": pl.Duration,
+            "future_close_24h_age": pl.Duration,
             "future_ret_1h": pl.Float64,
             "future_ret_4h": pl.Float64,
             "future_ret_24h": pl.Float64,
