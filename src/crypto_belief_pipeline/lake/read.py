@@ -162,7 +162,9 @@ def read_parquet_partition_df(partition_prefix: str, bucket: str | None = None) 
 
     canonical_key = f"{partition_prefix.rstrip('/')}/data.parquet"
     try:
-        return read_parquet_df(canonical_key, bucket=bucket)
+        # Even the compacted single-file layout can vary in timezone metadata
+        # across partitions; keep datetime columns consistent before returning.
+        return _normalize_datetime_timezones(read_parquet_df(canonical_key, bucket=bucket))
     except LakeKeyNotFound:
         pass
 
@@ -182,7 +184,9 @@ def read_parquet_partition_df(partition_prefix: str, bucket: str | None = None) 
         return pl.DataFrame()
     if len(frames) == 1:
         return frames[0]
-    return pl.concat(frames, how="diagonal_relaxed")
+    # `diagonal_relaxed` still requires identical dtypes for columns with the
+    # same name; ensure datetime tz metadata is consistent across shards.
+    return _normalize_datetime_timezones(pl.concat(frames, how="diagonal_relaxed"))
 
 
 def _normalize_datetime_timezones(df: pl.DataFrame) -> pl.DataFrame:
@@ -198,7 +202,9 @@ def _normalize_datetime_timezones(df: pl.DataFrame) -> pl.DataFrame:
     - tz-aware datetimes are converted to `UTC`.
     """
 
-    if df.is_empty():
+    # Even empty shards can carry schema we need to normalize before concat.
+    # Only skip when there are no columns at all.
+    if df.width == 0:
         return df
 
     exprs: list[pl.Expr] = []
@@ -211,7 +217,9 @@ def _normalize_datetime_timezones(df: pl.DataFrame) -> pl.DataFrame:
                 exprs.append(pl.col(name).dt.convert_time_zone("UTC"))
     if not exprs:
         return df
-    return df.with_columns(exprs)
+    # IMPORTANT: pass expressions as positional args. Passing a list as a single
+    # positional argument is treated as a literal and results in a no-op.
+    return df.with_columns(*exprs)
 
 
 __all__ = [
