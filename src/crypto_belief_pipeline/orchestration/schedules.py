@@ -125,3 +125,32 @@ def gold_to_quality__hourly_schedule(context: ScheduleEvaluationContext):
 )
 def quality_to_reports__daily_schedule(context: ScheduleEvaluationContext):
     yield RunRequest(partition_key=_daily_partition_key_for_tick(context))
+
+
+ALL_SCHEDULES = [
+    raw__market_fast__5m_schedule,
+    full_stack__live__hourly_schedule,
+    raw_to_silver__binance__1m_schedule,
+    raw_to_silver__polymarket__5m_schedule,
+    raw_to_silver__polymarket_discovery__6h_schedule,
+    raw_to_silver__gdelt__1h_schedule,
+    silver_to_gold__signals__5m_schedule,
+    gold__label_maturation__1h_schedule,
+    gold_to_quality__hourly_schedule,
+    quality_to_reports__daily_schedule,
+]
+
+
+__all__ = [
+    "ALL_SCHEDULES",
+    "full_stack__live__hourly_schedule",
+    "gold__label_maturation__1h_schedule",
+    "gold_to_quality__hourly_schedule",
+    "quality_to_reports__daily_schedule",
+    "raw__market_fast__5m_schedule",
+    "raw_to_silver__binance__1m_schedule",
+    "raw_to_silver__gdelt__1h_schedule",
+    "raw_to_silver__polymarket__5m_schedule",
+    "raw_to_silver__polymarket_discovery__6h_schedule",
+    "silver_to_gold__signals__5m_schedule",
+]
