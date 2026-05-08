@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 DATE ?= 2026-05-06
 
-.PHONY: setup lint format test minio-up minio-down ensure-bucket check-config run-sample \
+.PHONY: setup lint format typecheck check test minio-up minio-down ensure-bucket check-config run-sample \
 	smoke-test-apis fetch-live run-live build-gold dq detect-data-issues dagster-dev \
 	dagster-materialize-sample generate-reports full-sample \
 	docker-build build-control-plane docker-up docker-down dagster-up dagster-down dagster-ensure-bucket \
@@ -15,6 +15,12 @@ setup:
 lint:
 	. .venv/bin/activate && ruff check .
 	. .venv/bin/activate && ruff format --check .
+
+typecheck:
+	. .venv/bin/activate && mypy src/crypto_belief_pipeline
+
+check: lint typecheck
+	. .venv/bin/activate && pytest --cov=crypto_belief_pipeline --cov-report=term-missing --cov-fail-under=70
 
 format:
 	. .venv/bin/activate && ruff format .

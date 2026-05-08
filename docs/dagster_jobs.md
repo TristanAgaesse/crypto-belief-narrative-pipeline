@@ -29,10 +29,11 @@ Schedules follow the same stem:
   - `raw_polymarket_staging`
   - `raw_binance_staging`
   - `raw_gdelt_staging`
+  - `raw_kalshi_staging`
 - Tier 2 (canonical): hourly-partitioned recomputable assets across all layers:
-  - raw canonical: `raw_polymarket`, `raw_binance`, `raw_gdelt`
-  - bronze: `bronze_polymarket`, `bronze_binance`, `bronze_gdelt`
-  - silver: `silver_belief_price_snapshots`, `silver_crypto_candles_1m`, `silver_narrative_counts`
+  - raw canonical: `raw_polymarket`, `raw_binance`, `raw_gdelt`, `raw_kalshi`
+  - bronze: `bronze_polymarket`, `bronze_binance`, `bronze_gdelt`, `bronze_kalshi`
+  - silver: `silver_belief_price_snapshots`, `silver_crypto_candles_1m`, `silver_narrative_counts`, plus Kalshi research tables (`silver_kalshi_*`)
   - gold: `gold_training_examples`, `gold_live_signals`
   - quality/reports: `soda_data_quality`, `processing_gaps`, `data_issues`, `markdown_reports`
 
@@ -47,13 +48,14 @@ Schedules follow the same stem:
 - Hourly canonical raw assets compact staging microbatches in the matching hour window into one canonical hourly JSONL output per source.
 - Canonical downstream assets overwrite their hourly partition outputs, making reruns and backfills deterministic.
 - Existing schedule frequencies stay the same; each scheduled canonical run rematerializes the current hour partition.
-- Binance/GDELT/Polymarket hourly raw have API fallbacks: if staging is incomplete for the target hour (including partial missing microbatches), they fetch directly for the canonical hour window and write canonical hourly output.
+- Binance/GDELT/Polymarket/Kalshi hourly raw have API fallbacks: if staging is incomplete for the target hour (including partial missing microbatches), they fetch directly for the canonical hour window and write canonical hourly output.
 
 ### Source-specific caveats
 
 - Polymarket: current-state API only (no historical query params); historical replay fidelity is limited by what staging captured.
 - Binance: best historical compatibility (`startTime`/`endTime` window support).
 - GDELT: day-granularity API query behavior may produce overlap across minute staging runs; canonical hourly layers should treat this as expected and rely on downstream dedupe semantics.
+- Kalshi: REST-first public Trade API (`config/kalshi_keywords.yaml` for limits and hypothesis scope per `docs/alpha_hypothesis.md`: scoped markets, per-market trades, no global orderbook fallback). Optional WebSocket ingestion is not enabled in MVP.
 
 ## Design principles
 
@@ -79,10 +81,12 @@ Schedules follow the same stem:
 | `raw_staging__polymarket__5m_job` | raw staging | `raw_polymarket_staging` | `*/5 * * * *` | Append minute Polymarket microbatches on primary cadence. |
 | `raw_staging__polymarket_discovery__6h_job` | raw staging | `raw_polymarket_staging` | `0 */6 * * *` | Lower-frequency Polymarket discovery ingest pulse. |
 | `raw_staging__gdelt__1h_job` | raw staging | `raw_gdelt_staging` | `0 * * * *` | Append minute GDELT microbatches from hourly trigger. |
+| `raw_staging__kalshi__5m_job` | raw staging | `raw_kalshi_staging` | `*/5 * * * *` | Append Kalshi multi-dataset microbatches (markets/events/series/trades/books/candles). |
 | `raw_to_silver__binance__1m_job` | canonical raw->silver | `raw_binance`, `bronze_binance`, `silver_crypto_candles_1m` | `*/1 * * * *` | Recompute current hourly canonical Binance chain. |
 | `raw_to_silver__polymarket__5m_job` | canonical raw->silver | `raw_polymarket`, `bronze_polymarket`, `silver_belief_price_snapshots` | `*/5 * * * *` | Recompute current hourly canonical Polymarket chain. |
 | `raw_to_silver__polymarket_discovery__6h_job` | canonical raw->silver | `raw_polymarket`, `bronze_polymarket`, `silver_belief_price_snapshots` | `0 */6 * * *` | Discovery cadence for canonical hourly Polymarket chain. |
 | `raw_to_silver__gdelt__1h_job` | canonical raw->silver | `raw_gdelt`, `bronze_gdelt`, `silver_narrative_counts` | `0 * * * *` | Recompute current hourly canonical GDELT chain. |
+| `raw_to_silver__kalshi__5m_job` | canonical raw->silver | `raw_kalshi`, `bronze_kalshi`, all `silver_kalshi_*` | `*/5 * * * *` | Recompute hourly canonical Kalshi normalization + repricing features. |
 | `silver_to_gold__signals__5m_job` | canonical silver->gold | `gold_training_examples`, `gold_live_signals` | `*/5 * * * *` | Recompute current hourly gold outputs. |
 | `gold__label_maturation__1h_job` | canonical gold | `gold_training_examples` (+ required neighbor `gold_live_signals`) | `0 * * * *` | Hourly label maturation refresh for canonical partition. |
 | `gold_to_quality__hourly_job` | canonical gold->quality | `soda_data_quality`, `processing_gaps`, `data_issues` | `0 * * * *` | Run DQ checks, partition-scoped watermark gaps, and issue detection on hourly canonical output. |
@@ -108,6 +112,11 @@ Binance raw staging is schedule-only (`raw_staging__binance__1m_schedule`); ther
 - Symptom: expected market universe did not refresh.
 - Check: keyword config, active/closed flags, and `limit` in collector config.
 - Action: trigger one manual run, then compare raw market keys and row counts to previous 6h run.
+
+### `raw_to_silver__kalshi__5m_job`
+- Symptom: sparse order books or candles vs markets.
+- Check: `config/kalshi_keywords.yaml` (`keywords` / `asset_aliases`, `scope_markets_to_hypothesis`, `markets_max_pages`, `trades_max_markets_to_query`, `disabled_endpoints`) and Kalshi API rate limits.
+- Action: rerun hourly partition; inspect `kalshi_meta` on staging runs and canonical `data_source` metadata for API backfill.
 
 ### `raw_to_silver__gdelt__1h_job`
 - Symptom: empty `silver_narrative_counts`.

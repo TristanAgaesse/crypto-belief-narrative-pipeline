@@ -14,8 +14,7 @@ If you're evaluating this submission, run **only these commands**:
 ```bash
 cp .env.example .env
 make setup
-make lint
-make test
+make check
 
 make minio-up
 make ensure-bucket
@@ -41,7 +40,9 @@ Other useful entry points:
 | Goal | Command |
 |---|---|
 | Run unit tests | `make test` |
-| Lint + typecheck | `make lint` |
+| Lint | `make lint` |
+| Typecheck | `make typecheck` |
+| Lint + typecheck + tests (CI parity) | `make check` |
 | Sample pipeline only (no DQ/issues) | `python -m crypto_belief_pipeline.cli pipeline run --mode sample --skip-dq --skip-issues` |
 | Live (real APIs) end-to-end | `python -m crypto_belief_pipeline.cli pipeline run --date $(date +%F) --mode live` |
 | Live, partial sources only (raw + bronze + silver) | `python -m crypto_belief_pipeline.cli pipeline run --date $(date +%F) --mode live --sources binance,polymarket --skip-gold --skip-dq --skip-issues` |
@@ -74,8 +75,7 @@ From the project root:
 ```bash
 cp .env.example .env
 make setup
-make lint
-make test
+make check
 ```
 
 Notes:

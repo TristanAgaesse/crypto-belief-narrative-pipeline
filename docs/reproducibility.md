@@ -4,6 +4,9 @@ This repo is designed to be reproducible in two modes:
 
 - **Sample mode (recommended for evaluation)**: deterministic, no network calls.
 - **Live mode**: hits public APIs and will vary by time/availability.
+  Kalshi ingestion uses the public Trade API by default; optional env
+  `KALSHI_TRADE_API_BASE` overrides the REST root if you point at demo or
+  alternate endpoints.
 
 ### Sample mode (deterministic) checklist
 
@@ -16,8 +19,7 @@ One-shot run (preferred — runs sample → silver → gold → DQ → issues en
 ```bash
 cp .env.example .env
 make setup
-make lint
-make test
+make check
 
 make minio-up
 make ensure-bucket
