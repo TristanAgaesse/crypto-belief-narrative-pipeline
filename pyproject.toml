@@ -92,8 +92,6 @@ indent-style = "space"
 source = ["crypto_belief_pipeline"]
 omit = [
   # Dagster asset wiring is exercised via integration runs, not unit tests.
-  "src/crypto_belief_pipeline/cli.py",
-  "src/crypto_belief_pipeline/lake/read.py",
   "src/crypto_belief_pipeline/logging.py",
   "src/crypto_belief_pipeline/schemas.py",
   "src/crypto_belief_pipeline/orchestration/_helpers.py",
