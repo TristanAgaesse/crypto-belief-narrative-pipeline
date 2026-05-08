@@ -8,10 +8,16 @@ lake.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import polars as pl
 import pytest
 
 import crypto_belief_pipeline.transform.pipeline_steps as ps
+from crypto_belief_pipeline.contracts import (
+    SILVER_BELIEF_PRICE_SNAPSHOTS,
+    SILVER_CRYPTO_CANDLES_1M,
+)
 
 
 def _patch_writer_only(monkeypatch) -> list[tuple[str, str | None]]:
@@ -110,3 +116,67 @@ def test_silver_validation_runs_before_write(monkeypatch) -> None:
 
     silver_writes = [k for k, _ in writes if k.startswith("silver/")]
     assert silver_writes == [], "silver parquet must not be written when validation fails"
+
+
+def test_contract_rejects_wrong_dtype() -> None:
+    df = pl.DataFrame(
+        {
+            "timestamp": ["2026-05-06T00:00:00Z"],
+            "platform": ["polymarket"],
+            "market_id": ["m1"],
+            "outcome": ["Yes"],
+            "price": [0.5],
+        }
+    )
+
+    with pytest.raises(ValueError, match="invalid column dtypes"):
+        SILVER_BELIEF_PRICE_SNAPSHOTS.validate(df)
+
+
+def test_contract_rejects_null_required_key() -> None:
+    df = pl.DataFrame(
+        {
+            "timestamp": [datetime(2026, 5, 6, 0, 0)],
+            "exchange": ["binance_usdm"],
+            "asset": [None],
+            "close": [64000.0],
+        },
+        schema={
+            "timestamp": pl.Datetime,
+            "exchange": pl.String,
+            "asset": pl.String,
+            "close": pl.Float64,
+        },
+    )
+
+    with pytest.raises(ValueError, match="non-null constraint failed"):
+        SILVER_CRYPTO_CANDLES_1M.validate(df)
+
+
+def test_contract_rejects_duplicate_unique_key() -> None:
+    ts = datetime(2026, 5, 6, 0, 0)
+    df = pl.DataFrame(
+        {
+            "timestamp": [ts, ts],
+            "exchange": ["binance_usdm", "binance_usdm"],
+            "asset": ["BTC", "BTC"],
+            "close": [64000.0, 64001.0],
+        }
+    )
+
+    with pytest.raises(ValueError, match="unique key"):
+        SILVER_CRYPTO_CANDLES_1M.validate(df)
+
+
+def test_contract_rejects_invalid_enum_value() -> None:
+    df = pl.DataFrame(
+        {
+            "timestamp": [datetime(2026, 5, 6, 0, 0)],
+            "exchange": ["coinbase"],
+            "asset": ["BTC"],
+            "close": [64000.0],
+        }
+    )
+
+    with pytest.raises(ValueError, match="invalid values"):
+        SILVER_CRYPTO_CANDLES_1M.validate(df)

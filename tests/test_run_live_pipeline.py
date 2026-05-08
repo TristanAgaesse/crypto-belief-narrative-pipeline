@@ -19,7 +19,9 @@ def fake_io(monkeypatch):
         {"timestamp": [], "platform": [], "market_id": [], "outcome": [], "price": []}
     )
     silver_candles = pl.DataFrame({"timestamp": [], "exchange": [], "asset": [], "close": []})
-    silver_counts = pl.DataFrame({"timestamp": [], "narrative": [], "mention_volume": []})
+    silver_counts = pl.DataFrame(
+        {"timestamp": [], "narrative": [], "query": [], "mention_volume": [], "source": []}
+    )
 
     def fake_read(key: str, bucket=None):
         reads_called.append(key)

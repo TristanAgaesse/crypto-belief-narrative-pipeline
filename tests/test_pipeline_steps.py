@@ -25,7 +25,9 @@ def _patch_normalize_and_writer(
         {"timestamp": [], "platform": [], "market_id": [], "outcome": [], "price": []}
     )
     silver_candles = pl.DataFrame({"timestamp": [], "exchange": [], "asset": [], "close": []})
-    silver_counts = pl.DataFrame({"timestamp": [], "narrative": [], "mention_volume": []})
+    silver_counts = pl.DataFrame(
+        {"timestamp": [], "narrative": [], "query": [], "mention_volume": [], "source": []}
+    )
 
     def fake_write(df, key: str, bucket: str | None = None) -> None:  # noqa: ANN001
         writes_log.append((key, bucket))
