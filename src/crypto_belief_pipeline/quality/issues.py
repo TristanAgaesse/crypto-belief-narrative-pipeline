@@ -67,6 +67,7 @@ def detect_data_issues(
     market_tags_path: str | Path = "data/sample/market_tags.csv",
     *,
     bucket: str | None = None,
+    partition_key: str | None = None,
 ) -> list[dict]:
     """Run domain-specific data issue detection over the lake's silver + gold layers.
 
@@ -80,8 +81,15 @@ def detect_data_issues(
     candles_partition = partition_path("silver", "crypto_candles_1m", rd)
     narrative_partition = partition_path("silver", "narrative_counts", rd)
 
-    training_key = f"{partition_path('gold', 'training_examples', rd)}/data.parquet"
-    live_key = f"{partition_path('gold', 'live_signals', rd)}/data.parquet"
+    if partition_key:
+        safe = partition_key.replace(":", "-")
+        training_key = (
+            f"{partition_path('gold', 'training_examples', rd)}/partition={safe}/data.parquet"
+        )
+        live_key = f"{partition_path('gold', 'live_signals', rd)}/partition={safe}/data.parquet"
+    else:
+        training_key = f"{partition_path('gold', 'training_examples', rd)}/data.parquet"
+        live_key = f"{partition_path('gold', 'live_signals', rd)}/data.parquet"
 
     belief = _safe_read_partition(belief_partition, bucket=bucket)
     candles = _safe_read_partition(candles_partition, bucket=bucket)
@@ -121,21 +129,22 @@ def detect_data_issues(
             )
         )
 
-    # GDELT optional but surfaced
+    # GDELT optional: informational only (gold still runs with null narrative features).
     if narrative.height == 0:
         issues.append(
             _issue(
-                severity="high",
+                severity="info",
                 category="source_availability",
                 source="gdelt",
                 issue="narrative_counts_empty",
                 message=(
                     "No rows in silver_narrative_counts for this run_date "
-                    "(GDELT may be rate-limited)."
+                    "(GDELT off, empty, or rate-limited). Gold/DQ still proceed; "
+                    "narrative-derived fields are null or defaulted."
                 ),
                 suggested_action=(
-                    "Disable GDELT on fast schedules or backfill with slower windows / "
-                    "add a fallback provider."
+                    "If narrative signal is needed, enable GDELT or add a fallback provider; "
+                    "otherwise this is expected when running without GDELT."
                 ),
             )
         )

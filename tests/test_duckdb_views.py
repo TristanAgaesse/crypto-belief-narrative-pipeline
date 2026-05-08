@@ -140,6 +140,49 @@ def test_create_duckdb_quality_db_reads_microbatch_silver_shards(tmp_path, monke
         con.close()
 
 
+def test_create_duckdb_quality_db_reads_partitioned_gold_when_partition_key_provided(
+    tmp_path, monkeypatch
+) -> None:
+    _patch_paths(monkeypatch, tmp_path)
+
+    run_date = "2026-05-06"
+    partition_key = "2026-05-06-12:00"
+
+    # Silver (required for view creation)
+    for dataset in ("belief_price_snapshots", "crypto_candles_1m", "narrative_counts"):
+        p = Path(dv.partition_path("silver", dataset, run_date)) / "data.parquet"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        pl.DataFrame({"x": [1]}).write_parquet(p)
+
+    # Gold exists ONLY under the partitioned hourly layout.
+    safe = partition_key.replace(":", "-")
+    for dataset in ("training_examples", "live_signals"):
+        gold_p = (
+            Path(dv.partition_path("gold", dataset, run_date))
+            / f"partition={safe}"
+            / "data.parquet"
+        )
+        gold_p.parent.mkdir(parents=True, exist_ok=True)
+        pl.DataFrame({"x": [1]}).write_parquet(gold_p)
+
+    db_path = tmp_path / "quality_partitioned_gold.duckdb"
+    out = dv.create_duckdb_quality_db(
+        run_date,
+        db_path=db_path,
+        materialize_tables=False,
+        partition_key=partition_key,
+    )
+    assert out.exists()
+
+    con = duckdb.connect(str(out))
+    try:
+        row = con.execute("select count(*) from gold_training_examples").fetchone()
+        assert row is not None
+        assert row[0] == 1
+    finally:
+        con.close()
+
+
 def test_create_duckdb_quality_db_honors_bucket_override(tmp_path, monkeypatch) -> None:
     """Sample mode passes ``bucket=<sample_lake_bucket>`` so silver + gold views
     must resolve through the override bucket, not the configured live bucket.
