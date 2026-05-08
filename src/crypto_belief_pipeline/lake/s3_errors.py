@@ -1,4 +1,4 @@
-"""Shared S3 client-error classification for lake I/O."""
+"""Shared S3/botocore client-error classification for lake I/O."""
 
 from __future__ import annotations
 

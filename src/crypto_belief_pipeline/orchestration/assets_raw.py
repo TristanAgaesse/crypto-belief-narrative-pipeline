@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 from crypto_belief_pipeline.collectors.binance import collect_binance_raw
 from crypto_belief_pipeline.collectors.gdelt import collect_gdelt_raw_window
+from crypto_belief_pipeline.collectors.kalshi import collect_kalshi_raw
 from crypto_belief_pipeline.collectors.polymarket import collect_polymarket_raw
 from crypto_belief_pipeline.config import get_runtime_config, get_settings
 from crypto_belief_pipeline.lake.batches import generate_batch_id, split_batch_parts
@@ -25,6 +26,7 @@ from crypto_belief_pipeline.orchestration._helpers import (
 from crypto_belief_pipeline.orchestration.raw_inputs_from_lake import (
     list_raw_binance_for_partition_window,
     list_raw_gdelt_for_partition_window,
+    list_raw_kalshi_for_partition_window,
     list_raw_polymarket_for_partition_window,
 )
 from crypto_belief_pipeline.orchestration.resources import (
@@ -346,6 +348,86 @@ def raw_gdelt_staging(context) -> dict[str, str]:
 
 
 @asset(
+    name="raw_kalshi_staging",
+    partitions_def=raw_bronze_minute_partitions_def,
+    description="Minute staging ingest: Kalshi markets/events/series/trades/orderbooks/candles.",
+)
+def raw_kalshi_staging(context) -> dict[str, str]:
+    run_date = resolve_run_date_from_context(context)
+    partition_window = resolve_partition_window_from_context(context)
+    tick_now = (
+        (partition_window.end - timedelta(seconds=1))
+        if partition_window is not None
+        else _partition_tick_now_utc(run_date)
+    )
+    batch_id = generate_batch_id(tick_now, uniqueness=str(getattr(context, "run_id", ""))[:8])
+    parts = split_batch_parts(batch_id)
+    rt = get_runtime_config()
+    end_time = tick_now
+    window = compute_window(
+        now=end_time,
+        cadence=timedelta(seconds=rt.cadence.kalshi_raw_seconds),
+        overlap=timedelta(minutes=2),
+    )
+    start_time, end_time = _clamp_window_to_partition(window.start_time, window.end_time, run_date)
+    if partition_window is not None:
+        start_time = max(start_time, partition_window.start)
+        end_time = min(end_time, partition_window.end)
+        if start_time >= end_time:
+            start_time = partition_window.start
+            end_time = partition_window.end
+    cfg = _read_yaml_mapping("config/kalshi_keywords.yaml")
+    payloads, k_meta = collect_kalshi_raw(
+        start_time=start_time,
+        end_time=end_time,
+        snapshot_time=tick_now,
+        ingest_batch_id=batch_id,
+        cfg=cfg,
+    )
+
+    def _mk(suffix: str) -> str:
+        return microbatch_key(
+            "raw", "provider=kalshi", parts.date, parts.hour, batch_id, suffix
+        )
+
+    keys = {
+        "raw_kalshi_markets": _mk("_markets.jsonl"),
+        "raw_kalshi_events": _mk("_events.jsonl"),
+        "raw_kalshi_series": _mk("_series.jsonl"),
+        "raw_kalshi_trades": _mk("_trades.jsonl"),
+        "raw_kalshi_orderbooks": _mk("_orderbooks.jsonl"),
+        "raw_kalshi_candlesticks": _mk("_candlesticks.jsonl"),
+    }
+    write_jsonl_records(payloads["markets"], keys["raw_kalshi_markets"])
+    write_jsonl_records(payloads["events"], keys["raw_kalshi_events"])
+    write_jsonl_records(payloads["series"], keys["raw_kalshi_series"])
+    write_jsonl_records(payloads["trades"], keys["raw_kalshi_trades"])
+    write_jsonl_records(payloads["orderbooks"], keys["raw_kalshi_orderbooks"])
+    write_jsonl_records(payloads["candlesticks"], keys["raw_kalshi_candlesticks"])
+    lake_bucket = get_settings().s3_bucket
+
+    written = {
+        **keys,
+        "source_batch_id": batch_id,
+        "source_window_start": str(k_meta.get("start_time") or ""),
+        "source_window_end": str(k_meta.get("end_time") or ""),
+        "lake_bucket": lake_bucket,
+    }
+    context.add_output_metadata(
+        {
+            "run_date": run_date.isoformat(),
+            "written_keys": list(keys.keys()),
+            "batch_id": batch_id,
+            "kalshi_meta": MetadataValue.json(k_meta),
+            "window_start_utc": start_time.isoformat(),
+            "window_end_utc": end_time.isoformat(),
+            "window_closed_open": "[start,end)",
+        }
+    )
+    return written
+
+
+@asset(
     name="raw_polymarket",
     partitions_def=hourly_partitions_def,
     deps=[raw_polymarket_staging],
@@ -581,10 +663,142 @@ def raw_gdelt_hourly(context) -> dict[str, str]:
     return written
 
 
+@asset(
+    name="raw_kalshi",
+    partitions_def=hourly_partitions_def,
+    deps=[raw_kalshi_staging],
+    description="Canonical hourly Kalshi raw snapshot derived from minute staging microbatches.",
+)
+def raw_kalshi_hourly(context) -> dict[str, str]:
+    run_date = resolve_run_date_from_context(context)
+    partition_window = resolve_partition_window_from_context(context)
+    if partition_window is None:
+        raise ValueError("raw_kalshi hourly asset requires a partition window")
+    candidates, read_bucket = list_raw_kalshi_for_partition_window(
+        partition_start=partition_window.start,
+        partition_end=partition_window.end,
+    )
+    rt = get_runtime_config()
+    fallback_for_missing = _needs_api_fallback_for_incomplete_hour(
+        candidates=candidates,
+        partition_start=partition_window.start,
+        partition_end=partition_window.end,
+        cadence_seconds=int(rt.cadence.kalshi_raw_seconds),
+    )
+    fetched_from_api = False
+    if candidates and not fallback_for_missing:
+        markets = _records_for_hour_window(
+            [it["raw_kalshi_markets"] for it in candidates], bucket=read_bucket
+        )
+        events = _records_for_hour_window(
+            [it["raw_kalshi_events"] for it in candidates], bucket=read_bucket
+        )
+        series = _records_for_hour_window(
+            [it["raw_kalshi_series"] for it in candidates], bucket=read_bucket
+        )
+        trades = _records_for_hour_window(
+            [it["raw_kalshi_trades"] for it in candidates], bucket=read_bucket
+        )
+        orderbooks = _records_for_hour_window(
+            [it["raw_kalshi_orderbooks"] for it in candidates], bucket=read_bucket
+        )
+        candlesticks = _records_for_hour_window(
+            [it["raw_kalshi_candlesticks"] for it in candidates], bucket=read_bucket
+        )
+        last_batch_id = candidates[-1]["source_batch_id"] if candidates else ""
+    else:
+        cfg = _read_yaml_mapping("config/kalshi_keywords.yaml")
+        last_batch_id = generate_batch_id(
+            partition_window.end - timedelta(seconds=1),
+            uniqueness=f"backfill{partition_window.partition_key}",
+        )
+        payloads, _k_meta = collect_kalshi_raw(
+            start_time=partition_window.start,
+            end_time=partition_window.end,
+            snapshot_time=partition_window.end - timedelta(seconds=1),
+            ingest_batch_id=last_batch_id,
+            cfg=cfg,
+        )
+        markets = payloads["markets"]
+        events = payloads["events"]
+        series = payloads["series"]
+        trades = payloads["trades"]
+        orderbooks = payloads["orderbooks"]
+        candlesticks = payloads["candlesticks"]
+        fetched_from_api = True
+
+    keys_out = {
+        "raw_kalshi_markets": _canonical_raw_output_key(
+            dataset="provider=kalshi_markets",
+            run_date=run_date,
+            partition_key=partition_window.partition_key,
+        ),
+        "raw_kalshi_events": _canonical_raw_output_key(
+            dataset="provider=kalshi_events",
+            run_date=run_date,
+            partition_key=partition_window.partition_key,
+        ),
+        "raw_kalshi_series": _canonical_raw_output_key(
+            dataset="provider=kalshi_series",
+            run_date=run_date,
+            partition_key=partition_window.partition_key,
+        ),
+        "raw_kalshi_trades": _canonical_raw_output_key(
+            dataset="provider=kalshi_trades",
+            run_date=run_date,
+            partition_key=partition_window.partition_key,
+        ),
+        "raw_kalshi_orderbooks": _canonical_raw_output_key(
+            dataset="provider=kalshi_orderbooks",
+            run_date=run_date,
+            partition_key=partition_window.partition_key,
+        ),
+        "raw_kalshi_candlesticks": _canonical_raw_output_key(
+            dataset="provider=kalshi_candlesticks",
+            run_date=run_date,
+            partition_key=partition_window.partition_key,
+        ),
+    }
+    write_jsonl_records(markets, keys_out["raw_kalshi_markets"], bucket=read_bucket)
+    write_jsonl_records(events, keys_out["raw_kalshi_events"], bucket=read_bucket)
+    write_jsonl_records(series, keys_out["raw_kalshi_series"], bucket=read_bucket)
+    write_jsonl_records(trades, keys_out["raw_kalshi_trades"], bucket=read_bucket)
+    write_jsonl_records(orderbooks, keys_out["raw_kalshi_orderbooks"], bucket=read_bucket)
+    write_jsonl_records(candlesticks, keys_out["raw_kalshi_candlesticks"], bucket=read_bucket)
+
+    written = {
+        **keys_out,
+        "source_batch_id": last_batch_id,
+        "source_window_start": partition_window.start.isoformat(),
+        "source_window_end": partition_window.end.isoformat(),
+        "lake_bucket": read_bucket,
+    }
+    context.add_output_metadata(
+        {
+            "run_date": run_date.isoformat(),
+            "window_start_utc": partition_window.start.isoformat(),
+            "window_end_utc": partition_window.end.isoformat(),
+            "window_closed_open": "[start,end)",
+            "input_microbatches_seen": len(candidates),
+            "input_microbatches_processed": len(candidates),
+            "markets_rows": len(markets),
+            "events_rows": len(events),
+            "series_rows": len(series),
+            "trades_rows": len(trades),
+            "orderbooks_rows": len(orderbooks),
+            "candlesticks_rows": len(candlesticks),
+            "data_source": "api_backfill" if fetched_from_api else "staging_compaction",
+            "fallback_triggered_for_missing_microbatches": bool(fallback_for_missing),
+        }
+    )
+    return written
+
+
 # Backward-compatible module symbols for existing imports.
 raw_polymarket = raw_polymarket_hourly
 raw_binance = raw_binance_hourly
 raw_gdelt = raw_gdelt_hourly
+raw_kalshi = raw_kalshi_hourly
 
 
 __all__ = [
@@ -594,6 +808,9 @@ __all__ = [
     "raw_gdelt",
     "raw_gdelt_hourly",
     "raw_gdelt_staging",
+    "raw_kalshi",
+    "raw_kalshi_hourly",
+    "raw_kalshi_staging",
     "raw_polymarket",
     "raw_polymarket_hourly",
     "raw_polymarket_staging",

@@ -146,6 +146,20 @@ def create_duckdb_quality_db(
         ),
         "silver_crypto_candles_1m": _lake_key(_silver_partition_glob(rd, "crypto_candles_1m")),
         "silver_narrative_counts": _lake_key(_silver_partition_glob(rd, "narrative_counts")),
+        "silver_kalshi_markets": _lake_key(_silver_partition_glob(rd, "kalshi_markets")),
+        "silver_kalshi_market_snapshots": _lake_key(
+            _silver_partition_glob(rd, "kalshi_market_snapshots")
+        ),
+        "silver_kalshi_events": _lake_key(_silver_partition_glob(rd, "kalshi_events")),
+        "silver_kalshi_series": _lake_key(_silver_partition_glob(rd, "kalshi_series")),
+        "silver_kalshi_trades": _lake_key(_silver_partition_glob(rd, "kalshi_trades")),
+        "silver_kalshi_orderbook_snapshots": _lake_key(
+            _silver_partition_glob(rd, "kalshi_orderbook_snapshots")
+        ),
+        "silver_kalshi_candlesticks": _lake_key(_silver_partition_glob(rd, "kalshi_candlesticks")),
+        "silver_kalshi_event_repricing_features": _lake_key(
+            _silver_partition_glob(rd, "kalshi_event_repricing_features")
+        ),
     }
     gold_keys: dict[str, str] = {
         "gold_training_examples": _lake_key(_gold_key(rd, "training_examples", partition_key)),

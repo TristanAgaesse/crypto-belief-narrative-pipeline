@@ -6,6 +6,8 @@ contract tables (belief_price_snapshots, crypto_candles_1m, narrative_counts).
 
 from __future__ import annotations
 
+import polars as pl
+
 from crypto_belief_pipeline.contracts import (
     BRONZE_BINANCE_KLINES,
     BRONZE_GDELT_TIMELINE,
@@ -13,6 +15,14 @@ from crypto_belief_pipeline.contracts import (
     BRONZE_POLYMARKET_PRICES,
     SILVER_BELIEF_PRICE_SNAPSHOTS,
     SILVER_CRYPTO_CANDLES_1M,
+    SILVER_KALSHI_CANDLESTICKS,
+    SILVER_KALSHI_EVENT_REPRICING_FEATURES,
+    SILVER_KALSHI_EVENTS,
+    SILVER_KALSHI_MARKET_SNAPSHOTS,
+    SILVER_KALSHI_MARKETS,
+    SILVER_KALSHI_ORDERBOOK_SNAPSHOTS,
+    SILVER_KALSHI_SERIES,
+    SILVER_KALSHI_TRADES,
     SILVER_NARRATIVE_COUNTS,
 )
 from crypto_belief_pipeline.lake.read import read_parquet_df
@@ -26,11 +36,13 @@ from crypto_belief_pipeline.orchestration._helpers import (
 from crypto_belief_pipeline.orchestration.assets_raw import (
     raw_binance,
     raw_gdelt,
+    raw_kalshi,
     raw_polymarket,
 )
 from crypto_belief_pipeline.orchestration.raw_inputs_from_lake import (
     list_raw_binance_for_partition_window,
     list_raw_gdelt_for_partition_window,
+    list_raw_kalshi_for_partition_window,
     list_raw_polymarket_for_partition_window,
 )
 from crypto_belief_pipeline.orchestration.resources import (
@@ -46,6 +58,23 @@ from crypto_belief_pipeline.transform.normalize_binance import (
     to_crypto_candles_1m,
 )
 from crypto_belief_pipeline.transform.normalize_gdelt import normalize_timeline, to_narrative_counts
+from crypto_belief_pipeline.features.kalshi_repricing import build_event_repricing_features
+from crypto_belief_pipeline.transform.normalize_kalshi import (
+    load_keyword_config,
+    normalize_kalshi_candlesticks,
+    normalize_kalshi_events,
+    normalize_kalshi_markets,
+    normalize_kalshi_orderbooks,
+    normalize_kalshi_series,
+    normalize_kalshi_trades,
+    to_silver_kalshi_candlesticks,
+    to_silver_kalshi_events,
+    to_silver_kalshi_market_snapshots,
+    to_silver_kalshi_markets,
+    to_silver_kalshi_orderbook_snapshots,
+    to_silver_kalshi_series,
+    to_silver_kalshi_trades,
+)
 from crypto_belief_pipeline.transform.normalize_polymarket import (
     normalize_markets,
     normalize_price_snapshots,
@@ -321,6 +350,342 @@ def bronze_gdelt(context) -> dict[str, str]:
 
 @asset(
     partitions_def=hourly_partitions_def,
+    deps=[raw_kalshi],
+    description="Normalize Kalshi raw JSONL into bronze Parquet (markets/events/series/trades/books/candles).",
+)
+def bronze_kalshi(context) -> dict[str, str]:
+    run_date = resolve_run_date_from_context(context)
+    partition_window = resolve_partition_window_from_context(context)
+    if partition_window is None:
+        raise ValueError("bronze_kalshi requires an hourly partition window")
+    partition_key = partition_window.partition_key
+    partition_start = partition_window.start
+    partition_end = partition_window.end
+    candidates, read_bucket = list_raw_kalshi_for_partition_window(
+        partition_start=partition_start,
+        partition_end=partition_end,
+        include_canonical_hourly=True,
+    )
+    markets = _read_records_for_keys(
+        [it["raw_kalshi_markets"] for it in candidates], bucket=read_bucket
+    )
+    events = _read_records_for_keys(
+        [it["raw_kalshi_events"] for it in candidates], bucket=read_bucket
+    )
+    series = _read_records_for_keys(
+        [it["raw_kalshi_series"] for it in candidates], bucket=read_bucket
+    )
+    trades = _read_records_for_keys(
+        [it["raw_kalshi_trades"] for it in candidates], bucket=read_bucket
+    )
+    orderbooks = _read_records_for_keys(
+        [it["raw_kalshi_orderbooks"] for it in candidates], bucket=read_bucket
+    )
+    candles = _read_records_for_keys(
+        [it["raw_kalshi_candlesticks"] for it in candidates], bucket=read_bucket
+    )
+    last_batch_id = candidates[-1]["source_batch_id"] if candidates else ""
+    lineage = {
+        "source_batch_id": last_batch_id,
+        "source_window_start": partition_start.isoformat(),
+        "source_window_end": partition_end.isoformat(),
+    }
+    markets_df = _with_lineage(normalize_kalshi_markets(markets), lineage)
+    events_df = _with_lineage(normalize_kalshi_events(events), lineage)
+    series_df = _with_lineage(normalize_kalshi_series(series), lineage)
+    trades_df = _with_lineage(normalize_kalshi_trades(trades), lineage)
+    orderbooks_df = _with_lineage(normalize_kalshi_orderbooks(orderbooks), lineage)
+    candles_df = _with_lineage(normalize_kalshi_candlesticks(candles), lineage)
+
+    keys_out = {
+        "bronze_kalshi_markets": _canonical_partition_output_key(
+            layer="bronze",
+            dataset="provider=kalshi_markets",
+            run_date=run_date,
+            partition_key=partition_key,
+        ),
+        "bronze_kalshi_events": _canonical_partition_output_key(
+            layer="bronze",
+            dataset="provider=kalshi_events",
+            run_date=run_date,
+            partition_key=partition_key,
+        ),
+        "bronze_kalshi_series": _canonical_partition_output_key(
+            layer="bronze",
+            dataset="provider=kalshi_series",
+            run_date=run_date,
+            partition_key=partition_key,
+        ),
+        "bronze_kalshi_trades": _canonical_partition_output_key(
+            layer="bronze",
+            dataset="provider=kalshi_trades",
+            run_date=run_date,
+            partition_key=partition_key,
+        ),
+        "bronze_kalshi_orderbooks": _canonical_partition_output_key(
+            layer="bronze",
+            dataset="provider=kalshi_orderbooks",
+            run_date=run_date,
+            partition_key=partition_key,
+        ),
+        "bronze_kalshi_candlesticks": _canonical_partition_output_key(
+            layer="bronze",
+            dataset="provider=kalshi_candlesticks",
+            run_date=run_date,
+            partition_key=partition_key,
+        ),
+    }
+    write_parquet_df(markets_df, keys_out["bronze_kalshi_markets"], bucket=read_bucket)
+    write_parquet_df(events_df, keys_out["bronze_kalshi_events"], bucket=read_bucket)
+    write_parquet_df(series_df, keys_out["bronze_kalshi_series"], bucket=read_bucket)
+    write_parquet_df(trades_df, keys_out["bronze_kalshi_trades"], bucket=read_bucket)
+    write_parquet_df(orderbooks_df, keys_out["bronze_kalshi_orderbooks"], bucket=read_bucket)
+    write_parquet_df(candles_df, keys_out["bronze_kalshi_candlesticks"], bucket=read_bucket)
+
+    written = {
+        **keys_out,
+        "source_batch_id": last_batch_id,
+        "source_window_start": partition_start.isoformat(),
+        "source_window_end": partition_end.isoformat(),
+        "lake_bucket": read_bucket,
+    }
+    processed = []
+    for it in candidates:
+        for k in (
+            "raw_kalshi_markets",
+            "raw_kalshi_events",
+            "raw_kalshi_series",
+            "raw_kalshi_trades",
+            "raw_kalshi_orderbooks",
+            "raw_kalshi_candlesticks",
+        ):
+            processed.append(it[k])
+    write_processing_watermark(
+        build_watermark(
+            consumer_asset="bronze_kalshi",
+            source="kalshi",
+            partition_key=partition_key,
+            partition_start=partition_start,
+            partition_end=partition_end,
+            processed_input_keys=sorted(set(processed)),
+            last_processed_batch_id=last_batch_id or None,
+        ),
+        bucket=read_bucket,
+    )
+    context.add_output_metadata(
+        {
+            "run_date": run_date.isoformat(),
+            "written_keys": list(keys_out.keys()),
+            "window_start_utc": partition_start.isoformat(),
+            "window_end_utc": partition_end.isoformat(),
+            "input_microbatches_seen": len(candidates),
+            "markets_rows": int(markets_df.height),
+            "events_rows": int(events_df.height),
+        }
+    )
+    return written
+
+
+@asset(
+    partitions_def=hourly_partitions_def,
+    deps=[bronze_kalshi],
+    description="Silver Kalshi markets with crypto relevance scoring.",
+)
+def silver_kalshi_markets(context, bronze_kalshi: dict[str, str]) -> dict[str, str]:
+    run_date = resolve_run_date_from_context(context)
+    bucket = bronze_kalshi.get("lake_bucket")
+    mk = read_parquet_df(bronze_kalshi["bronze_kalshi_markets"], bucket=bucket)
+    ev = read_parquet_df(bronze_kalshi["bronze_kalshi_events"], bucket=bucket)
+    se = read_parquet_df(bronze_kalshi["bronze_kalshi_series"], bucket=bucket)
+    cfg = load_keyword_config()
+    df = to_silver_kalshi_markets(mk, ev, se, cfg=cfg)
+    df = df.with_columns(pl.col("priority").cast(pl.Int64))
+    df = _with_lineage(df, bronze_kalshi)
+    SILVER_KALSHI_MARKETS.validate(df)
+    key = _canonical_partition_output_key(
+        layer="silver",
+        dataset="kalshi_markets",
+        run_date=run_date,
+        partition_key=context.partition_key if context.has_partition_key else None,
+    )
+    write_parquet_df(df, key, bucket=bucket)
+    return {"silver_kalshi_markets": key, "lake_bucket": bucket} if bucket else {"silver_kalshi_markets": key}
+
+
+@asset(
+    partitions_def=hourly_partitions_def,
+    deps=[bronze_kalshi],
+    description="Silver Kalshi market snapshots (mid/spread from quotes).",
+)
+def silver_kalshi_market_snapshots(context, bronze_kalshi: dict[str, str]) -> dict[str, str]:
+    run_date = resolve_run_date_from_context(context)
+    bucket = bronze_kalshi.get("lake_bucket")
+    mk = read_parquet_df(bronze_kalshi["bronze_kalshi_markets"], bucket=bucket)
+    df = to_silver_kalshi_market_snapshots(mk)
+    df = _with_lineage(df, bronze_kalshi)
+    SILVER_KALSHI_MARKET_SNAPSHOTS.validate(df)
+    key = _canonical_partition_output_key(
+        layer="silver",
+        dataset="kalshi_market_snapshots",
+        run_date=run_date,
+        partition_key=context.partition_key if context.has_partition_key else None,
+    )
+    write_parquet_df(df, key, bucket=bucket)
+    return {"silver_kalshi_market_snapshots": key, "lake_bucket": bucket} if bucket else {
+        "silver_kalshi_market_snapshots": key
+    }
+
+
+@asset(
+    partitions_def=hourly_partitions_def,
+    deps=[bronze_kalshi],
+    description="Silver Kalshi events.",
+)
+def silver_kalshi_events(context, bronze_kalshi: dict[str, str]) -> dict[str, str]:
+    run_date = resolve_run_date_from_context(context)
+    bucket = bronze_kalshi.get("lake_bucket")
+    ev = read_parquet_df(bronze_kalshi["bronze_kalshi_events"], bucket=bucket)
+    df = to_silver_kalshi_events(ev)
+    df = _with_lineage(df, bronze_kalshi)
+    SILVER_KALSHI_EVENTS.validate(df)
+    key = _canonical_partition_output_key(
+        layer="silver",
+        dataset="kalshi_events",
+        run_date=run_date,
+        partition_key=context.partition_key if context.has_partition_key else None,
+    )
+    write_parquet_df(df, key, bucket=bucket)
+    return {"silver_kalshi_events": key, "lake_bucket": bucket} if bucket else {"silver_kalshi_events": key}
+
+
+@asset(
+    partitions_def=hourly_partitions_def,
+    deps=[bronze_kalshi],
+    description="Silver Kalshi series metadata.",
+)
+def silver_kalshi_series(context, bronze_kalshi: dict[str, str]) -> dict[str, str]:
+    run_date = resolve_run_date_from_context(context)
+    bucket = bronze_kalshi.get("lake_bucket")
+    se = read_parquet_df(bronze_kalshi["bronze_kalshi_series"], bucket=bucket)
+    df = to_silver_kalshi_series(se)
+    df = _with_lineage(df, bronze_kalshi)
+    SILVER_KALSHI_SERIES.validate(df)
+    key = _canonical_partition_output_key(
+        layer="silver",
+        dataset="kalshi_series",
+        run_date=run_date,
+        partition_key=context.partition_key if context.has_partition_key else None,
+    )
+    write_parquet_df(df, key, bucket=bucket)
+    return {"silver_kalshi_series": key, "lake_bucket": bucket} if bucket else {"silver_kalshi_series": key}
+
+
+@asset(
+    partitions_def=hourly_partitions_def,
+    deps=[bronze_kalshi],
+    description="Silver Kalshi trades (deduped).",
+)
+def silver_kalshi_trades(context, bronze_kalshi: dict[str, str]) -> dict[str, str]:
+    run_date = resolve_run_date_from_context(context)
+    bucket = bronze_kalshi.get("lake_bucket")
+    tr = read_parquet_df(bronze_kalshi["bronze_kalshi_trades"], bucket=bucket)
+    df = to_silver_kalshi_trades(tr)
+    df = _with_lineage(df, bronze_kalshi)
+    SILVER_KALSHI_TRADES.validate(df)
+    key = _canonical_partition_output_key(
+        layer="silver",
+        dataset="kalshi_trades",
+        run_date=run_date,
+        partition_key=context.partition_key if context.has_partition_key else None,
+    )
+    write_parquet_df(df, key, bucket=bucket)
+    return {"silver_kalshi_trades": key, "lake_bucket": bucket} if bucket else {"silver_kalshi_trades": key}
+
+
+@asset(
+    partitions_def=hourly_partitions_def,
+    deps=[bronze_kalshi],
+    description="Silver Kalshi order book snapshots.",
+)
+def silver_kalshi_orderbook_snapshots(context, bronze_kalshi: dict[str, str]) -> dict[str, str]:
+    run_date = resolve_run_date_from_context(context)
+    bucket = bronze_kalshi.get("lake_bucket")
+    ob = read_parquet_df(bronze_kalshi["bronze_kalshi_orderbooks"], bucket=bucket)
+    df = to_silver_kalshi_orderbook_snapshots(ob)
+    df = _with_lineage(df, bronze_kalshi)
+    SILVER_KALSHI_ORDERBOOK_SNAPSHOTS.validate(df)
+    key = _canonical_partition_output_key(
+        layer="silver",
+        dataset="kalshi_orderbook_snapshots",
+        run_date=run_date,
+        partition_key=context.partition_key if context.has_partition_key else None,
+    )
+    write_parquet_df(df, key, bucket=bucket)
+    return {"silver_kalshi_orderbook_snapshots": key, "lake_bucket": bucket} if bucket else {
+        "silver_kalshi_orderbook_snapshots": key
+    }
+
+
+@asset(
+    partitions_def=hourly_partitions_def,
+    deps=[bronze_kalshi],
+    description="Silver Kalshi candlesticks.",
+)
+def silver_kalshi_candlesticks(context, bronze_kalshi: dict[str, str]) -> dict[str, str]:
+    run_date = resolve_run_date_from_context(context)
+    bucket = bronze_kalshi.get("lake_bucket")
+    cd = read_parquet_df(bronze_kalshi["bronze_kalshi_candlesticks"], bucket=bucket)
+    df = to_silver_kalshi_candlesticks(cd)
+    df = _with_lineage(df, bronze_kalshi)
+    SILVER_KALSHI_CANDLESTICKS.validate(df)
+    key = _canonical_partition_output_key(
+        layer="silver",
+        dataset="kalshi_candlesticks",
+        run_date=run_date,
+        partition_key=context.partition_key if context.has_partition_key else None,
+    )
+    write_parquet_df(df, key, bucket=bucket)
+    return {"silver_kalshi_candlesticks": key, "lake_bucket": bucket} if bucket else {
+        "silver_kalshi_candlesticks": key
+    }
+
+
+@asset(
+    partitions_def=hourly_partitions_def,
+    deps=[silver_kalshi_market_snapshots, silver_kalshi_trades, silver_kalshi_markets],
+    description="Rolling repricing / liquidity features for Kalshi.",
+)
+def silver_kalshi_event_repricing_features(
+    context,
+    silver_kalshi_market_snapshots: dict[str, str],
+    silver_kalshi_trades: dict[str, str],
+    silver_kalshi_markets: dict[str, str],
+) -> dict[str, str]:
+    run_date = resolve_run_date_from_context(context)
+    bucket = silver_kalshi_market_snapshots.get("lake_bucket")
+    snap = read_parquet_df(
+        silver_kalshi_market_snapshots["silver_kalshi_market_snapshots"], bucket=bucket
+    )
+    tr = read_parquet_df(silver_kalshi_trades["silver_kalshi_trades"], bucket=bucket)
+    mk = read_parquet_df(silver_kalshi_markets["silver_kalshi_markets"], bucket=bucket)
+    df = build_event_repricing_features(snap, tr, mk)
+    lineage = {**silver_kalshi_market_snapshots, **silver_kalshi_trades, **silver_kalshi_markets}
+    df = _with_lineage(df, lineage)
+    SILVER_KALSHI_EVENT_REPRICING_FEATURES.validate(df)
+    key = _canonical_partition_output_key(
+        layer="silver",
+        dataset="kalshi_event_repricing_features",
+        run_date=run_date,
+        partition_key=context.partition_key if context.has_partition_key else None,
+    )
+    write_parquet_df(df, key, bucket=bucket)
+    return {"silver_kalshi_event_repricing_features": key, "lake_bucket": bucket} if bucket else {
+        "silver_kalshi_event_repricing_features": key
+    }
+
+
+@asset(
+    partitions_def=hourly_partitions_def,
     deps=[bronze_polymarket],
     description="Build silver belief_price_snapshots from bronze Polymarket prices.",
 )
@@ -442,8 +807,17 @@ def silver_narrative_counts(context, bronze_gdelt: dict[str, str]) -> dict[str, 
 __all__ = [
     "bronze_binance",
     "bronze_gdelt",
+    "bronze_kalshi",
     "bronze_polymarket",
     "silver_belief_price_snapshots",
     "silver_crypto_candles_1m",
+    "silver_kalshi_candlesticks",
+    "silver_kalshi_event_repricing_features",
+    "silver_kalshi_events",
+    "silver_kalshi_market_snapshots",
+    "silver_kalshi_markets",
+    "silver_kalshi_orderbook_snapshots",
+    "silver_kalshi_series",
+    "silver_kalshi_trades",
     "silver_narrative_counts",
 ]

@@ -31,7 +31,16 @@ def _batch_id_from_micro_key(key: str) -> str:
     if "batch_id=" not in key:
         return ""
     segment = key.split("batch_id=", 1)[1]
-    for suf in ("_markets.jsonl", "_prices.jsonl", ".jsonl"):
+    for suf in (
+        "_markets.jsonl",
+        "_prices.jsonl",
+        "_events.jsonl",
+        "_series.jsonl",
+        "_trades.jsonl",
+        "_orderbooks.jsonl",
+        "_candlesticks.jsonl",
+        ".jsonl",
+    ):
         if segment.endswith(suf):
             return segment[: -len(suf)]
     return segment
@@ -101,7 +110,9 @@ def _partition_dates_for_window(partition_start: datetime, partition_end: dateti
 
 
 def _hourly_partition_key(partition_start: datetime) -> str:
-    return partition_start.astimezone(UTC).strftime("%Y-%m-%d-%H:%M")
+    """Match Dagster :class:`HourlyPartitionsDefinition` keys: ``YYYY-MM-DD-HH:00``."""
+    dt = partition_start.astimezone(UTC).replace(minute=0, second=0, microsecond=0)
+    return dt.strftime("%Y-%m-%d-%H:00")
 
 
 def _safe_partition_slug(partition_key: str) -> str:
@@ -472,6 +483,89 @@ def list_raw_gdelt_for_partition_window(
     )
 
 
+def _kalshi_micro_keys_from_markets_key(markets_key: str) -> dict[str, str]:
+    if not markets_key.endswith("_markets.jsonl"):
+        raise ValueError(f"expected Kalshi markets micro key, got {markets_key!r}")
+    base = markets_key[: -len("_markets.jsonl")]
+    return {
+        "raw_kalshi_markets": markets_key,
+        "raw_kalshi_events": f"{base}_events.jsonl",
+        "raw_kalshi_series": f"{base}_series.jsonl",
+        "raw_kalshi_trades": f"{base}_trades.jsonl",
+        "raw_kalshi_orderbooks": f"{base}_orderbooks.jsonl",
+        "raw_kalshi_candlesticks": f"{base}_candlesticks.jsonl",
+    }
+
+
+def list_raw_kalshi_for_partition_window(
+    *,
+    partition_start: datetime,
+    partition_end: datetime,
+    include_canonical_hourly: bool = False,
+) -> tuple[list[dict[str, str]], str]:
+    last_err: FileNotFoundError | None = None
+    for bucket in _candidate_buckets():
+        try:
+            keys = _list_window_jsonl_keys(
+                "provider=kalshi", partition_start, partition_end, bucket=bucket
+            )
+            if include_canonical_hourly:
+                run_date = partition_start.astimezone(UTC).date()
+                canonical_row: dict[str, str] = {}
+                ok = True
+                for dataset, field in (
+                    ("provider=kalshi_markets", "raw_kalshi_markets"),
+                    ("provider=kalshi_events", "raw_kalshi_events"),
+                    ("provider=kalshi_series", "raw_kalshi_series"),
+                    ("provider=kalshi_trades", "raw_kalshi_trades"),
+                    ("provider=kalshi_orderbooks", "raw_kalshi_orderbooks"),
+                    ("provider=kalshi_candlesticks", "raw_kalshi_candlesticks"),
+                ):
+                    ck = _canonical_raw_hourly_key(
+                        dataset=dataset,
+                        partition_start=partition_start,
+                    )
+                    prefix = partition_path("raw", dataset, run_date)
+                    ds_keys = set(list_jsonl_keys_under(prefix, bucket=bucket))
+                    if ck not in ds_keys:
+                        ok = False
+                        break
+                    canonical_row[field] = ck
+                if ok and len(canonical_row) == 6:
+                    canonical_row["source_batch_id"] = (
+                        f"{partition_start.astimezone(UTC).strftime('%Y%m%dT%H%M%SZ')}_canonical"
+                    )
+                    canonical_row["source_window_start"] = ""
+                    canonical_row["source_window_end"] = ""
+                    return ([canonical_row], bucket)
+            micro_markets = sorted(
+                k for k in keys if k.endswith("_markets.jsonl") and "/batch_id=" in k
+            )
+            out: list[dict[str, str]] = []
+            for mk in micro_markets:
+                ts = _batch_ts_from_key(mk)
+                if ts is None or not (partition_start <= ts < partition_end):
+                    continue
+                parts = _kalshi_micro_keys_from_markets_key(mk)
+                if any(pk not in keys for pk in parts.values()):
+                    continue
+                parts["source_batch_id"] = _batch_id_from_micro_key(mk)
+                parts["source_window_start"] = ""
+                parts["source_window_end"] = ""
+                out.append(parts)
+            return out, bucket
+        except FileNotFoundError as e:
+            last_err = e
+            continue
+    raise last_err or FileNotFoundError(
+        _no_raw_window_msg(
+            dataset="provider=kalshi",
+            partition_start=partition_start,
+            partition_end=partition_end,
+        )
+    )
+
+
 def unseen_raw_inputs_for_partition(
     *,
     consumer_asset: str,
@@ -510,6 +604,7 @@ def unseen_raw_inputs_for_partition(
 __all__ = [
     "list_raw_binance_for_partition_window",
     "list_raw_gdelt_for_partition_window",
+    "list_raw_kalshi_for_partition_window",
     "list_raw_polymarket_for_partition_window",
     "resolve_raw_binance_for_partition",
     "resolve_raw_gdelt_for_partition",

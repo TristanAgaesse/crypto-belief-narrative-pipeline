@@ -23,6 +23,11 @@ raw_staging__gdelt__1h_job = define_asset_job(
     selection=AssetSelection.assets("raw_gdelt_staging"),
 )
 
+raw_staging__kalshi__5m_job = define_asset_job(
+    name="raw_staging__kalshi__5m_job",
+    selection=AssetSelection.assets("raw_kalshi_staging"),
+)
+
 # Canonical hourly chains (recomputable overwrite by partition).
 raw_to_silver__binance__1m_job = define_asset_job(
     name="raw_to_silver__binance__1m_job",
@@ -46,6 +51,22 @@ raw_to_silver__polymarket_discovery__6h_job = define_asset_job(
 raw_to_silver__gdelt__1h_job = define_asset_job(
     name="raw_to_silver__gdelt__1h_job",
     selection=AssetSelection.assets("raw_gdelt", "bronze_gdelt", "silver_narrative_counts"),
+)
+
+raw_to_silver__kalshi__5m_job = define_asset_job(
+    name="raw_to_silver__kalshi__5m_job",
+    selection=AssetSelection.assets(
+        "raw_kalshi",
+        "bronze_kalshi",
+        "silver_kalshi_markets",
+        "silver_kalshi_market_snapshots",
+        "silver_kalshi_events",
+        "silver_kalshi_series",
+        "silver_kalshi_trades",
+        "silver_kalshi_orderbook_snapshots",
+        "silver_kalshi_candlesticks",
+        "silver_kalshi_event_repricing_features",
+    ),
 )
 
 silver_to_gold__signals__5m_job = define_asset_job(
@@ -84,6 +105,7 @@ full_stack__minute__manual_job = define_asset_job(
         "raw_polymarket_staging",
         "raw_binance_staging",
         "raw_gdelt_staging",
+        "raw_kalshi_staging",
     ),
 )
 
@@ -92,12 +114,22 @@ FULL_STACK_HOURLY_ASSET_NAMES: tuple[str, ...] = (
     "raw_polymarket",
     "raw_binance",
     "raw_gdelt",
+    "raw_kalshi",
     "bronze_polymarket",
     "bronze_binance",
     "bronze_gdelt",
+    "bronze_kalshi",
     "silver_belief_price_snapshots",
     "silver_crypto_candles_1m",
     "silver_narrative_counts",
+    "silver_kalshi_markets",
+    "silver_kalshi_market_snapshots",
+    "silver_kalshi_events",
+    "silver_kalshi_series",
+    "silver_kalshi_trades",
+    "silver_kalshi_orderbook_snapshots",
+    "silver_kalshi_candlesticks",
+    "silver_kalshi_event_repricing_features",
     "gold_training_examples",
     "gold_live_signals",
     "soda_data_quality",
@@ -117,10 +149,12 @@ ALL_JOBS = [
     raw_staging__polymarket__5m_job,
     raw_staging__polymarket_discovery__6h_job,
     raw_staging__gdelt__1h_job,
+    raw_staging__kalshi__5m_job,
     raw_to_silver__binance__1m_job,
     raw_to_silver__polymarket__5m_job,
     raw_to_silver__polymarket_discovery__6h_job,
     raw_to_silver__gdelt__1h_job,
+    raw_to_silver__kalshi__5m_job,
     silver_to_gold__signals__5m_job,
     gold__label_maturation__1h_job,
     gold_to_quality__hourly_job,
@@ -140,10 +174,12 @@ __all__ = [
     "quality_to_reports__daily_job",
     "raw_staging__binance__1m_job",
     "raw_staging__gdelt__1h_job",
+    "raw_staging__kalshi__5m_job",
     "raw_staging__polymarket__5m_job",
     "raw_staging__polymarket_discovery__6h_job",
     "raw_to_silver__binance__1m_job",
     "raw_to_silver__gdelt__1h_job",
+    "raw_to_silver__kalshi__5m_job",
     "raw_to_silver__polymarket__5m_job",
     "raw_to_silver__polymarket_discovery__6h_job",
     "silver_to_gold__signals__5m_job",

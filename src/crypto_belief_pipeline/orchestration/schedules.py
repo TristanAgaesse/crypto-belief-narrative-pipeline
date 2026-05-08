@@ -12,10 +12,12 @@ from crypto_belief_pipeline.orchestration.jobs import (
     quality_to_reports__daily_job,
     raw_staging__binance__1m_job,
     raw_staging__gdelt__1h_job,
+    raw_staging__kalshi__5m_job,
     raw_staging__polymarket__5m_job,
     raw_staging__polymarket_discovery__6h_job,
     raw_to_silver__binance__1m_job,
     raw_to_silver__gdelt__1h_job,
+    raw_to_silver__kalshi__5m_job,
     raw_to_silver__polymarket__5m_job,
     raw_to_silver__polymarket_discovery__6h_job,
     silver_to_gold__signals__5m_job,
@@ -84,6 +86,16 @@ def raw_staging__gdelt__1h_schedule(context: ScheduleEvaluationContext):
 
 
 @schedule(
+    name="raw_staging__kalshi__5m_schedule",
+    cron_schedule="*/5 * * * *",
+    execution_timezone="UTC",
+    job=raw_staging__kalshi__5m_job,
+)
+def raw_staging__kalshi__5m_schedule(context: ScheduleEvaluationContext):
+    yield RunRequest(partition_key=_minute_partition_key_for_tick(context))
+
+
+@schedule(
     name="raw_to_silver__binance__1m_schedule",
     cron_schedule="*/1 * * * *",
     execution_timezone="UTC",
@@ -120,6 +132,16 @@ def raw_to_silver__polymarket_discovery__6h_schedule(context: ScheduleEvaluation
     job=raw_to_silver__gdelt__1h_job,
 )
 def raw_to_silver__gdelt__1h_schedule(context: ScheduleEvaluationContext):
+    yield RunRequest(partition_key=_hourly_partition_key_for_tick(context))
+
+
+@schedule(
+    name="raw_to_silver__kalshi__5m_schedule",
+    cron_schedule="*/5 * * * *",
+    execution_timezone="UTC",
+    job=raw_to_silver__kalshi__5m_job,
+)
+def raw_to_silver__kalshi__5m_schedule(context: ScheduleEvaluationContext):
     yield RunRequest(partition_key=_hourly_partition_key_for_tick(context))
 
 
@@ -168,10 +190,12 @@ ALL_SCHEDULES = [
     raw_staging__polymarket__5m_schedule,
     raw_staging__polymarket_discovery__6h_schedule,
     raw_staging__gdelt__1h_schedule,
+    raw_staging__kalshi__5m_schedule,
     raw_to_silver__binance__1m_schedule,
     raw_to_silver__polymarket__5m_schedule,
     raw_to_silver__polymarket_discovery__6h_schedule,
     raw_to_silver__gdelt__1h_schedule,
+    raw_to_silver__kalshi__5m_schedule,
     silver_to_gold__signals__5m_schedule,
     gold__label_maturation__1h_schedule,
     gold_to_quality__hourly_schedule,
@@ -186,10 +210,12 @@ __all__ = [
     "quality_to_reports__daily_schedule",
     "raw_staging__binance__1m_schedule",
     "raw_staging__gdelt__1h_schedule",
+    "raw_staging__kalshi__5m_schedule",
     "raw_staging__polymarket__5m_schedule",
     "raw_staging__polymarket_discovery__6h_schedule",
     "raw_to_silver__binance__1m_schedule",
     "raw_to_silver__gdelt__1h_schedule",
+    "raw_to_silver__kalshi__5m_schedule",
     "raw_to_silver__polymarket__5m_schedule",
     "raw_to_silver__polymarket_discovery__6h_schedule",
     "silver_to_gold__signals__5m_schedule",

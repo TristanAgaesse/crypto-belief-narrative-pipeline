@@ -41,6 +41,7 @@ _BRONZE_WATERMARK_LOOKUPS: tuple[tuple[str, str], ...] = (
     ("bronze_polymarket", "polymarket"),
     ("bronze_binance", "binance"),
     ("bronze_gdelt", "gdelt"),
+    ("bronze_kalshi", "kalshi"),
 )
 
 

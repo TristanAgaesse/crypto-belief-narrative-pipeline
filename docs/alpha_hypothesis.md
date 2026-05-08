@@ -103,3 +103,7 @@ is_candidate_event =
 ### No-lookahead invariant
 
 Features only use timestamps `<= event_time`. Labels only use timestamps `> event_time`.
+
+### Related ingest (Kalshi)
+
+Kalshi Trade API data is an optional second belief venue. Ingest is intentionally **narrowed to BTC/ETH/SOL-aligned markets** via `config/kalshi_keywords.yaml` (keywords, `asset_aliases`, and scoped trades) so it supports the same research story without pulling the full exchange catalog on every run.
