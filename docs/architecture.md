@@ -119,4 +119,4 @@ Manual market interpretation lives in `data/sample/market_tags.csv`. Markets wit
 ## Roadmap / deferred work
 
 - **Event-study reports**: dedicated summaries (hit rates by horizon/asset/narrative, `sample_report.md`-style narratives) are **not implemented** yet. Current Step 3.5 outputs are Soda logs, structured data issues (`reports/data_issues.{md,json}`), and a lightweight `reports/index.md` (CLI `generate-reports` and Dagster `markdown_reports` share the same renderer in `reports/index_md.py`).
-- **Dagster `incremental_sample_job`**: includes live collector assets upstream of bronze; use `make full-sample` / `pipeline run --mode sample` for offline sample runs.
+- **Dagster `full_stack__sample__manual_job`**: includes live collector assets upstream of bronze; use `make full-sample` / `pipeline run --mode sample` for offline sample runs.

@@ -10,34 +10,32 @@ def test_definitions_import_and_contents() -> None:
     from crypto_belief_pipeline.orchestration.definitions import defs
 
     assert isinstance(defs, Definitions)
-    assert defs.resolve_job_def("incremental_sample_job") is not None
-    assert defs.resolve_job_def("incremental_live_job") is not None
-    assert defs.resolve_job_def("live_market_fast_job") is not None
-    assert defs.resolve_job_def("full_refresh_job") is not None
-    assert defs.resolve_job_def("binance_raw_1m_job") is not None
-    assert defs.resolve_job_def("polymarket_prices_5m_job") is not None
-    assert defs.resolve_job_def("polymarket_discovery_6h_job") is not None
-    assert defs.resolve_job_def("gdelt_raw_1h_job") is not None
-    assert defs.resolve_job_def("silver_microbatch_5m_job") is not None
-    assert defs.resolve_job_def("gold_live_signals_5m_job") is not None
-    assert defs.resolve_job_def("label_maturation_1h_job") is not None
-    assert defs.resolve_job_def("soda_60m_job") is not None
-    assert defs.resolve_job_def("reports_daily_job") is not None
+    assert defs.resolve_job_def("full_stack__sample__manual_job") is not None
+    assert defs.resolve_job_def("full_stack__live__hourly_job") is not None
+    assert defs.resolve_job_def("raw__market_fast__5m_job") is not None
+    assert defs.resolve_job_def("full_refresh__all_layers__manual_job") is not None
+    assert defs.resolve_job_def("raw_to_silver__binance__1m_job") is not None
+    assert defs.resolve_job_def("raw_to_silver__polymarket__5m_job") is not None
+    assert defs.resolve_job_def("raw_to_silver__polymarket_discovery__6h_job") is not None
+    assert defs.resolve_job_def("raw_to_silver__gdelt__1h_job") is not None
+    assert defs.resolve_job_def("silver_to_gold__signals__5m_job") is not None
+    assert defs.resolve_job_def("gold__label_maturation__1h_job") is not None
+    assert defs.resolve_job_def("gold_to_quality__hourly_job") is not None
+    assert defs.resolve_job_def("quality_to_reports__daily_job") is not None
 
     repo = defs.get_repository_def()
     schedules = {s.name for s in repo.schedule_defs}
     assert {
-        "live_market_fast_schedule",
-        "live_research_hourly_schedule",
-        "binance_raw_1m_schedule",
-        "polymarket_prices_5m_schedule",
-        "polymarket_discovery_6h_schedule",
-        "gdelt_raw_1h_schedule",
-        "silver_microbatch_5m_schedule",
-        "gold_live_signals_5m_schedule",
-        "label_maturation_1h_schedule",
-        "soda_60m_schedule",
-        "reports_daily_schedule",
+        "raw__market_fast__5m_schedule",
+        "full_stack__live__hourly_schedule",
+        "raw_to_silver__binance__1m_schedule",
+        "raw_to_silver__polymarket__5m_schedule",
+        "raw_to_silver__polymarket_discovery__6h_schedule",
+        "raw_to_silver__gdelt__1h_schedule",
+        "silver_to_gold__signals__5m_schedule",
+        "gold__label_maturation__1h_schedule",
+        "gold_to_quality__hourly_schedule",
+        "quality_to_reports__daily_schedule",
     }.issubset(schedules)
 
     # Asset keys we expect to exist (names as shown in Dagster UI)

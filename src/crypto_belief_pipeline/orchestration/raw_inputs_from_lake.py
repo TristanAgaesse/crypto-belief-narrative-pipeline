@@ -1,7 +1,7 @@
 """Resolve raw JSONL lake keys for a daily partition without Dagster IO-manager inputs.
 
 Bronze assets depend on ``raw_*`` for lineage, but when jobs omit the raw assets
-(e.g. ``silver_microbatch_5m_job``), Dagster cannot load upstream outputs from
+(e.g. ad-hoc bronze-only materializations), Dagster cannot load upstream outputs from
 ephemeral run storage. These helpers list objects under the lake prefix and pick
 the same keys a co-located raw collector would emit (microbatch, CLI ``live_*``,
 or ``sample_*`` layout).

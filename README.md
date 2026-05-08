@@ -52,7 +52,8 @@ For deeper docs, see:
 [`docs/reproducibility.md`](docs/reproducibility.md),
 [`docs/limitations.md`](docs/limitations.md),
 [`docs/productionization.md`](docs/productionization.md),
-[`docs/gold_features.md`](docs/gold_features.md).
+[`docs/gold_features.md`](docs/gold_features.md),
+[`docs/dagster_jobs.md`](docs/dagster_jobs.md).
 
 ## Why this is a data-infrastructure project
 - **Local-first lake**: MinIO provides an S3-compatible object store on your laptop for reproducible iteration.
@@ -313,10 +314,10 @@ Materialize via Dagster CLI (sample-shaped job; requires `sample.sample_enabled=
 RUN_DATE=2026-05-06 make dagster-materialize-sample
 # equivalent:
 dagster asset materialize -m crypto_belief_pipeline.orchestration.definitions \
-  --job incremental_sample_job --partition 2026-05-06
+  --job full_stack__sample__manual_job --partition 2026-05-06
 ```
 
-`incremental_sample_job` includes **live** raw collector assets as upstream dependencies of bronze/silver (`raw_polymarket`, `raw_binance`, `raw_gdelt`). It is **not** a fully offline path. For deterministic offline sample data + gold + DQ, use `make full-sample` or `python -m crypto_belief_pipeline.cli pipeline run --mode sample`.
+`full_stack__sample__manual_job` includes **live** raw collector assets as upstream dependencies of bronze/silver (`raw_polymarket`, `raw_binance`, `raw_gdelt`). It is **not** a fully offline path. For deterministic offline sample data + gold + DQ, use `make full-sample` or `python -m crypto_belief_pipeline.cli pipeline run --mode sample`.
 
 To materialize only deterministic sample raw JSONL into the configured sample bucket:
 

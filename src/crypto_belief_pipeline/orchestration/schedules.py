@@ -4,17 +4,16 @@ from datetime import UTC
 
 from crypto_belief_pipeline.orchestration._helpers import partitions_def
 from crypto_belief_pipeline.orchestration.jobs import (
-    binance_raw_1m_job,
-    gdelt_raw_1h_job,
-    gold_live_signals_5m_job,
-    incremental_live_job,
-    label_maturation_1h_job,
-    live_market_fast_job,
-    polymarket_discovery_6h_job,
-    polymarket_prices_5m_job,
-    reports_daily_job,
-    silver_microbatch_5m_job,
-    soda_60m_job,
+    full_stack__live__hourly_job,
+    gold__label_maturation__1h_job,
+    gold_to_quality__hourly_job,
+    quality_to_reports__daily_job,
+    raw__market_fast__5m_job,
+    raw_to_silver__binance__1m_job,
+    raw_to_silver__gdelt__1h_job,
+    raw_to_silver__polymarket__5m_job,
+    raw_to_silver__polymarket_discovery__6h_job,
+    silver_to_gold__signals__5m_job,
 )
 from dagster import RunRequest, ScheduleEvaluationContext, schedule  # type: ignore[attr-defined]
 
@@ -29,110 +28,100 @@ def _daily_partition_key_for_tick(context: ScheduleEvaluationContext) -> str:
 
 
 @schedule(
-    name="live_market_fast_schedule",
+    name="raw__market_fast__5m_schedule",
     cron_schedule="*/5 * * * *",
     execution_timezone="UTC",
-    job=live_market_fast_job,
+    job=raw__market_fast__5m_job,
 )
-def live_market_fast_schedule(context: ScheduleEvaluationContext):
+def raw__market_fast__5m_schedule(context: ScheduleEvaluationContext):
     yield RunRequest(partition_key=_daily_partition_key_for_tick(context))
 
 
 @schedule(
-    name="live_research_hourly_schedule",
+    name="full_stack__live__hourly_schedule",
     cron_schedule="0 * * * *",
     execution_timezone="UTC",
-    job=incremental_live_job,
+    job=full_stack__live__hourly_job,
 )
-def live_research_hourly_schedule(context: ScheduleEvaluationContext):
+def full_stack__live__hourly_schedule(context: ScheduleEvaluationContext):
     yield RunRequest(partition_key=_daily_partition_key_for_tick(context))
 
 
 @schedule(
-    name="binance_raw_1m_schedule",
+    name="raw_to_silver__binance__1m_schedule",
     cron_schedule="*/1 * * * *",
     execution_timezone="UTC",
-    job=binance_raw_1m_job,
+    job=raw_to_silver__binance__1m_job,
 )
-def binance_raw_1m_schedule(context: ScheduleEvaluationContext):
+def raw_to_silver__binance__1m_schedule(context: ScheduleEvaluationContext):
     yield RunRequest(partition_key=_daily_partition_key_for_tick(context))
 
 
 @schedule(
-    name="polymarket_prices_5m_schedule",
+    name="raw_to_silver__polymarket__5m_schedule",
     cron_schedule="*/5 * * * *",
     execution_timezone="UTC",
-    job=polymarket_prices_5m_job,
+    job=raw_to_silver__polymarket__5m_job,
 )
-def polymarket_prices_5m_schedule(context: ScheduleEvaluationContext):
+def raw_to_silver__polymarket__5m_schedule(context: ScheduleEvaluationContext):
     yield RunRequest(partition_key=_daily_partition_key_for_tick(context))
 
 
 @schedule(
-    name="polymarket_discovery_6h_schedule",
+    name="raw_to_silver__polymarket_discovery__6h_schedule",
     cron_schedule="0 */6 * * *",
     execution_timezone="UTC",
-    job=polymarket_discovery_6h_job,
+    job=raw_to_silver__polymarket_discovery__6h_job,
 )
-def polymarket_discovery_6h_schedule(context: ScheduleEvaluationContext):
+def raw_to_silver__polymarket_discovery__6h_schedule(context: ScheduleEvaluationContext):
     yield RunRequest(partition_key=_daily_partition_key_for_tick(context))
 
 
 @schedule(
-    name="gdelt_raw_1h_schedule",
+    name="raw_to_silver__gdelt__1h_schedule",
     cron_schedule="0 * * * *",
     execution_timezone="UTC",
-    job=gdelt_raw_1h_job,
+    job=raw_to_silver__gdelt__1h_job,
 )
-def gdelt_raw_1h_schedule(context: ScheduleEvaluationContext):
+def raw_to_silver__gdelt__1h_schedule(context: ScheduleEvaluationContext):
     yield RunRequest(partition_key=_daily_partition_key_for_tick(context))
 
 
 @schedule(
-    name="silver_microbatch_5m_schedule",
+    name="silver_to_gold__signals__5m_schedule",
     cron_schedule="*/5 * * * *",
     execution_timezone="UTC",
-    job=silver_microbatch_5m_job,
+    job=silver_to_gold__signals__5m_job,
 )
-def silver_microbatch_5m_schedule(context: ScheduleEvaluationContext):
+def silver_to_gold__signals__5m_schedule(context: ScheduleEvaluationContext):
     yield RunRequest(partition_key=_daily_partition_key_for_tick(context))
 
 
 @schedule(
-    name="gold_live_signals_5m_schedule",
-    cron_schedule="*/5 * * * *",
-    execution_timezone="UTC",
-    job=gold_live_signals_5m_job,
-)
-def gold_live_signals_5m_schedule(context: ScheduleEvaluationContext):
-    yield RunRequest(partition_key=_daily_partition_key_for_tick(context))
-
-
-@schedule(
-    name="label_maturation_1h_schedule",
+    name="gold__label_maturation__1h_schedule",
     cron_schedule="0 * * * *",
     execution_timezone="UTC",
-    job=label_maturation_1h_job,
+    job=gold__label_maturation__1h_job,
 )
-def label_maturation_1h_schedule(context: ScheduleEvaluationContext):
+def gold__label_maturation__1h_schedule(context: ScheduleEvaluationContext):
     yield RunRequest(partition_key=_daily_partition_key_for_tick(context))
 
 
 @schedule(
-    name="soda_60m_schedule",
+    name="gold_to_quality__hourly_schedule",
     cron_schedule="0 * * * *",
     execution_timezone="UTC",
-    job=soda_60m_job,
+    job=gold_to_quality__hourly_job,
 )
-def soda_60m_schedule(context: ScheduleEvaluationContext):
+def gold_to_quality__hourly_schedule(context: ScheduleEvaluationContext):
     yield RunRequest(partition_key=_daily_partition_key_for_tick(context))
 
 
 @schedule(
-    name="reports_daily_schedule",
+    name="quality_to_reports__daily_schedule",
     cron_schedule="0 10 * * *",
     execution_timezone="UTC",
-    job=reports_daily_job,
+    job=quality_to_reports__daily_job,
 )
-def reports_daily_schedule(context: ScheduleEvaluationContext):
+def quality_to_reports__daily_schedule(context: ScheduleEvaluationContext):
     yield RunRequest(partition_key=_daily_partition_key_for_tick(context))
