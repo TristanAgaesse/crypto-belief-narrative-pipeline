@@ -46,6 +46,7 @@ Other useful entry points:
 | Live (real APIs) end-to-end | `python -m crypto_belief_pipeline.cli pipeline run --date $(date +%F) --mode live` |
 | Live, partial sources only (raw + bronze + silver) | `python -m crypto_belief_pipeline.cli pipeline run --date $(date +%F) --mode live --sources binance,polymarket --skip-gold --skip-dq --skip-issues` |
 | Always-on Dagster scheduler | `make dagster-up` then open `http://localhost:3000` |
+| Rolling Dagster image deploy (user-code; see docs for flags) | `make deploy` or `make deploy-persist` |
 
 For deeper docs, see:
 [`docs/architecture.md`](docs/architecture.md),
