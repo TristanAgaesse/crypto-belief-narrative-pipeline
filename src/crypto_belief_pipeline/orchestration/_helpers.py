@@ -37,8 +37,12 @@ raw_bronze_minute_partitions_def = TimeWindowPartitionsDefinition(
 )
 
 # Canonical hourly partitions for recomputable curated outputs in every layer.
+# end_offset=1 includes the in-progress UTC hour; with 0 the current hour is not a
+# valid partition key until the window ends, which breaks sub-hourly schedules and
+# manual runs during that hour (same rationale as daily_partitions_def above).
 hourly_partitions_def = HourlyPartitionsDefinition(
     start_date="2026-05-06-00:00",
+    end_offset=1,
 )
 
 # Backward compatibility aliases.

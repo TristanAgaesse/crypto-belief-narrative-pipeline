@@ -6,7 +6,10 @@ import pytest
 
 pytest.importorskip("dagster")
 
-from crypto_belief_pipeline.orchestration._helpers import raw_bronze_minute_partitions_def
+from crypto_belief_pipeline.orchestration._helpers import (
+    hourly_partitions_def,
+    raw_bronze_minute_partitions_def,
+)
 from crypto_belief_pipeline.orchestration.schedules import (
     _hourly_partition_key_for_tick,
     _minute_partition_key_for_tick,
@@ -40,3 +43,14 @@ def test_hourly_partition_key_uses_dagster_hour_format() -> None:
     dt = datetime(2026, 5, 7, 12, 34, 56, tzinfo=UTC)
     pk = _hourly_partition_key_for_tick(_SchedCtx(dt))
     assert pk == "2026-05-07-12:00"
+
+
+def test_hourly_partition_def_validates_open_hour_for_sub_hourly_schedules() -> None:
+    """Without end_offset=1, the in-progress hour is not a valid key (breaks */1 schedules)."""
+    for dt in (
+        datetime(2026, 5, 8, 22, 0, 0, tzinfo=UTC),
+        datetime(2026, 5, 8, 22, 34, 56, tzinfo=UTC),
+    ):
+        pk = hourly_partitions_def.get_partition_key_for_timestamp(dt.timestamp())
+        assert pk == "2026-05-08-22:00"
+        hourly_partitions_def.validate_partition_key(pk)
