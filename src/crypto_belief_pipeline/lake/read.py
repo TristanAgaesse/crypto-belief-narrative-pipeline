@@ -173,7 +173,7 @@ def read_parquet_partition_df(partition_prefix: str, bucket: str | None = None) 
     frames: list[pl.DataFrame] = []
     for k in keys:
         try:
-            frames.append(read_parquet_df(k, bucket=bucket))
+            frames.append(_normalize_datetime_timezones(read_parquet_df(k, bucket=bucket)))
         except LakeKeyNotFound:
             # Concurrent compaction can remove a shard between list and read; skip it.
             continue
@@ -183,6 +183,35 @@ def read_parquet_partition_df(partition_prefix: str, bucket: str | None = None) 
     if len(frames) == 1:
         return frames[0]
     return pl.concat(frames, how="diagonal_relaxed")
+
+
+def _normalize_datetime_timezones(df: pl.DataFrame) -> pl.DataFrame:
+    """Normalize datetime columns to a consistent UTC time zone.
+
+    Parquet shards can contain the same logical column as tz-naive in some files
+    and tz-aware in others (e.g. `datetime[μs]` vs `datetime[μs, UTC]`). Polars
+    requires identical dtypes to concatenate.
+
+    Policy:
+    - tz-naive datetimes are assumed to already be UTC and get `UTC` attached via
+      `replace_time_zone` (no wall-time shift).
+    - tz-aware datetimes are converted to `UTC`.
+    """
+
+    if df.is_empty():
+        return df
+
+    exprs: list[pl.Expr] = []
+    for name, dtype in df.schema.items():
+        if isinstance(dtype, pl.Datetime):
+            tz = getattr(dtype, "time_zone", None)
+            if tz is None:
+                exprs.append(pl.col(name).dt.replace_time_zone("UTC"))
+            else:
+                exprs.append(pl.col(name).dt.convert_time_zone("UTC"))
+    if not exprs:
+        return df
+    return df.with_columns(exprs)
 
 
 __all__ = [
