@@ -5,19 +5,12 @@ import json
 from datetime import UTC, datetime
 
 from botocore.exceptions import ClientError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from crypto_belief_pipeline.config import get_settings
+from crypto_belief_pipeline.lake.keys import full_s3_key
 from crypto_belief_pipeline.lake.s3 import get_s3_client
-
-_NOT_FOUND_CODES = frozenset({"NoSuchKey", "NoSuchBucket", "404", "NotFound"})
-
-
-def _is_not_found(exc: BaseException) -> bool:
-    if isinstance(exc, ClientError):
-        code = exc.response.get("Error", {}).get("Code")
-        return code in _NOT_FOUND_CODES
-    return False
+from crypto_belief_pipeline.lake.s3_errors import is_not_found
 
 
 def _utc_now_iso() -> str:
@@ -63,16 +56,25 @@ def read_processing_watermark(
     s = get_settings()
     b = bucket or s.s3_bucket
     obj_key = watermark_object_key(consumer_asset, source, partition_key)
-    full_key = (f"{s.s3_prefix.strip('/')}/" if s.s3_prefix else "") + obj_key
+    full_key = full_s3_key(obj_key)
     client = get_s3_client(settings=s)
     try:
         obj = client.get_object(Bucket=b, Key=full_key)
     except ClientError as e:
-        if _is_not_found(e):
+        if is_not_found(e):
             return None
         raise
-    data = json.loads(obj["Body"].read().decode("utf-8"))
-    return ProcessingWatermark.model_validate(data)
+    raw = obj["Body"].read().decode("utf-8")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Corrupt processing watermark JSON: bucket={b!r} key={full_key!r}") from e
+    try:
+        return ProcessingWatermark.model_validate(data)
+    except ValidationError as e:
+        raise ValueError(
+            f"Invalid processing watermark schema: bucket={b!r} key={full_key!r}"
+        ) from e
 
 
 def write_processing_watermark(
@@ -87,7 +89,7 @@ def write_processing_watermark(
     watermark = watermark.model_copy(update={"updated_at": _utc_now_iso()})
     body = json.dumps(watermark.model_dump(), indent=2, sort_keys=True).encode("utf-8")
     client = get_s3_client(settings=s)
-    full_key = (f"{s.s3_prefix.strip('/')}/" if s.s3_prefix else "") + obj_key
+    full_key = full_s3_key(obj_key)
     client.put_object(Bucket=b, Key=full_key, Body=body, ContentType="application/json")
     return obj_key
 

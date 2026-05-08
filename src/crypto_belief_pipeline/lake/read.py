@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+from typing import Any, Literal
 
 import polars as pl
 from botocore.exceptions import ClientError
@@ -9,8 +10,7 @@ from botocore.exceptions import ClientError
 from crypto_belief_pipeline.config import get_settings
 from crypto_belief_pipeline.lake.keys import full_s3_key
 from crypto_belief_pipeline.lake.s3 import get_s3_client
-
-_NOT_FOUND_CODES = frozenset({"NoSuchKey", "NoSuchBucket", "404", "NotFound"})
+from crypto_belief_pipeline.lake.s3_errors import is_not_found
 
 
 class LakeKeyNotFound(KeyError):
@@ -22,20 +22,38 @@ class LakeKeyNotFound(KeyError):
     """
 
 
-def _is_not_found(exc: BaseException) -> bool:
-    if isinstance(exc, ClientError):
-        code = exc.response.get("Error", {}).get("Code")
-        return code in _NOT_FOUND_CODES
-    return False
+class MalformedJsonlLineError(ValueError):
+    """Raised when a JSONL line fails to parse in strict mode."""
+
+    def __init__(self, *, key: str, line_no: int, preview: str):
+        self.key = key
+        self.line_no = line_no
+        self.preview = preview
+        msg = f"Malformed JSONL at line {line_no} in {key!r}: {preview!r}"
+        super().__init__(msg)
 
 
 def _maybe_translate_not_found(exc: BaseException, *, key: str) -> BaseException:
-    if _is_not_found(exc):
+    if is_not_found(exc):
         return LakeKeyNotFound(f"lake key not found: {key}")
     return exc
 
 
-def read_jsonl_records(key: str, bucket: str | None = None) -> list[dict]:
+def read_jsonl_records(
+    key: str,
+    bucket: str | None = None,
+    *,
+    on_invalid_line: Literal["error", "skip"] = "error",
+    invalid_line_stats: dict[str, Any] | None = None,
+) -> list[dict]:
+    """Read newline-delimited JSON objects from S3.
+
+    ``on_invalid_line``:
+    - ``error`` (default): raise :class:`MalformedJsonlLineError` with line number and preview.
+    - ``skip``: omit bad lines; if ``invalid_line_stats`` is a dict, populate
+      ``skipped_lines`` (int) and optionally ``first_error`` (str).
+    """
+
     settings = get_settings()
     b = bucket or settings.s3_bucket
     client = get_s3_client(settings=settings)
@@ -49,10 +67,36 @@ def read_jsonl_records(key: str, bucket: str | None = None) -> list[dict]:
         raise
     text = obj["Body"].read().decode("utf-8")
     out: list[dict] = []
+    skipped = 0
+    line_no = 0
     for line in text.splitlines():
+        line_no += 1
         if not line.strip():
             continue
-        out.append(json.loads(line))
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError as e:
+            preview = line.strip()[:200]
+            if on_invalid_line == "error":
+                raise MalformedJsonlLineError(key=key, line_no=line_no, preview=preview) from e
+            skipped += 1
+            if invalid_line_stats is not None and skipped == 1:
+                invalid_line_stats.setdefault("first_error", str(e))
+            continue
+        if not isinstance(parsed, dict):
+            if on_invalid_line == "error":
+                raise MalformedJsonlLineError(
+                    key=key,
+                    line_no=line_no,
+                    preview=str(parsed)[:200],
+                )
+            skipped += 1
+            if invalid_line_stats is not None and skipped == 1:
+                invalid_line_stats.setdefault("first_error", "line is not a JSON object")
+            continue
+        out.append(parsed)
+    if invalid_line_stats is not None:
+        invalid_line_stats["skipped_lines"] = invalid_line_stats.get("skipped_lines", 0) + skipped
     return out
 
 
@@ -224,6 +268,7 @@ def _normalize_datetime_timezones(df: pl.DataFrame) -> pl.DataFrame:
 
 __all__ = [
     "LakeKeyNotFound",
+    "MalformedJsonlLineError",
     "list_jsonl_keys_under",
     "list_parquet_keys_under",
     "read_jsonl_records",
