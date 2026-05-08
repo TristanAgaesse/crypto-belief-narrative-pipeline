@@ -37,12 +37,7 @@ def _batch_id_from_micro_key(key: str) -> str:
 
 
 def _is_microbatch_non_polymarket_jsonl(k: str) -> bool:
-    return (
-        "/batch_id=" in k
-        and k.endswith(".jsonl")
-        and "_markets" not in k
-        and "_prices" not in k
-    )
+    return "/batch_id=" in k and k.endswith(".jsonl") and "_markets" not in k and "_prices" not in k
 
 
 def _polymarket_cli_or_sample(prefix: str, keys: set[str]) -> dict[str, str] | None:

@@ -90,7 +90,9 @@ def build_gold_tables(
     narrative_silver = (
         read_parquet_df(narrative_key, bucket=bucket)
         if narrative_key is not None
-        else read_parquet_partition_df(partition_path("silver", "narrative_counts", run_date), bucket=bucket)
+        else read_parquet_partition_df(
+            partition_path("silver", "narrative_counts", run_date), bucket=bucket
+        )
     )
 
     tags = validate_market_tags(load_market_tags(market_tags_path))

@@ -87,3 +87,20 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+
+[tool.coverage.run]
+source = ["crypto_belief_pipeline"]
+omit = [
+  # Dagster asset wiring is exercised via integration runs, not unit tests.
+  "src/crypto_belief_pipeline/cli.py",
+  "src/crypto_belief_pipeline/lake/read.py",
+  "src/crypto_belief_pipeline/logging.py",
+  "src/crypto_belief_pipeline/schemas.py",
+  "src/crypto_belief_pipeline/orchestration/_helpers.py",
+  "src/crypto_belief_pipeline/orchestration/assets_quality.py",
+  "src/crypto_belief_pipeline/orchestration/assets_raw.py",
+  "src/crypto_belief_pipeline/orchestration/assets_transform.py",
+]
+
+[tool.coverage.report]
+skip_empty = true
