@@ -39,7 +39,7 @@ Schedules follow the same stem:
 ### Partition keys and windows
 
 - Minute staging partition key: `YYYY-MM-DDTHH:MM` (UTC). Schedules anchor to the **last completed minute** so ingest windows never extend into the future.
-- Hourly canonical partition key: Dagster hourly key (UTC).
+- Hourly canonical partition key: `YYYY-MM-DD-HH:00` (UTC).
 - Processing semantics are always closed-open: `[start,end)` in UTC.
 
 ### Compaction and recomputation contract
@@ -141,7 +141,7 @@ Binance raw staging is schedule-only (`raw_staging__binance__1m_schedule`); ther
 
 ### `quality_to_reports__daily_job`
 - Symptom: reports index missing or stale.
-- Check: `reports/index.md` write path permissions and upstream quality asset status.
+- Check: partitioned report output path permissions and upstream quality asset status.
 - Action: rerun this job after `gold_to_quality__hourly_job` is green.
 
 ### `full_stack__hourly__manual_job`

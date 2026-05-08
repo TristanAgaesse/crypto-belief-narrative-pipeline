@@ -222,6 +222,9 @@ __marimo__/
 
 # Pipeline outputs
 reports/
+# Keep source code under `src/**/reports/` (only ignore generated output dirs).
+!src/crypto_belief_pipeline/reports/
+!src/crypto_belief_pipeline/reports/*.py
 
 # Soda local state
 .soda/

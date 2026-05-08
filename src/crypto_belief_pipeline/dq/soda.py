@@ -24,6 +24,7 @@ def run_soda_checks(
     *,
     materialize_tables: bool = False,
     bucket: str | None = None,
+    reports_dir: str | Path = "reports",
 ) -> dict[str, Any]:
     """Run Soda Core checks against a DuckDB quality DB for the given run_date.
 
@@ -46,7 +47,7 @@ def run_soda_checks(
         bucket=bucket,
     )
 
-    reports_dir = Path("reports")
+    reports_dir = Path(reports_dir)
     reports_dir.mkdir(parents=True, exist_ok=True)
     out_txt = reports_dir / "soda_scan_output.txt"
     out_json = reports_dir / "soda_scan_summary.json"

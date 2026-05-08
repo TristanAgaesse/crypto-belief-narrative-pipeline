@@ -9,7 +9,6 @@ Includes:
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from crypto_belief_pipeline.dq.soda import run_soda_checks
@@ -22,8 +21,11 @@ from crypto_belief_pipeline.orchestration.assets_transform import (
 )
 from crypto_belief_pipeline.orchestration.resources import resolve_run_date_from_context
 from crypto_belief_pipeline.quality.issues import detect_data_issues, write_data_issues_reports
+from crypto_belief_pipeline.reports.index_md import (
+    render_reports_index_md,
+    reports_dir_for_partition,
+)
 from crypto_belief_pipeline.state.processing_watermarks import read_processing_watermark
-from crypto_belief_pipeline.reports.index_md import render_reports_index_md
 from dagster import (
     AssetDep,
     AssetKey,
@@ -33,7 +35,6 @@ from dagster import (
     asset,
     multi_asset,
 )
-
 
 # Bronze layer writes these watermarks (see ``assets_transform``); bounded reads per partition.
 _BRONZE_WATERMARK_LOOKUPS: tuple[tuple[str, str], ...] = (
@@ -117,7 +118,9 @@ def gold_tables(
 )
 def soda_data_quality(context) -> dict[str, Any]:
     run_date = resolve_run_date_from_context(context)
-    summary = run_soda_checks(run_date=run_date.isoformat())
+    partition_key = context.partition_key if context.has_partition_key else None
+    reports_dir = reports_dir_for_partition(run_date.isoformat(), partition_key)
+    summary = run_soda_checks(run_date=run_date.isoformat(), reports_dir=reports_dir)
     context.add_output_metadata(
         {
             "run_date": run_date.isoformat(),
@@ -140,8 +143,14 @@ def soda_data_quality(context) -> dict[str, Any]:
 )
 def data_issues(context) -> list[dict]:
     run_date = resolve_run_date_from_context(context)
+    partition_key = context.partition_key if context.has_partition_key else None
+    reports_dir = reports_dir_for_partition(run_date.isoformat(), partition_key)
     issues = detect_data_issues(run_date=run_date.isoformat())
-    paths = write_data_issues_reports(issues)
+    paths = write_data_issues_reports(
+        issues,
+        md_path=reports_dir / "data_issues.md",
+        json_path=reports_dir / "data_issues.json",
+    )
     context.add_output_metadata(
         {
             "run_date": run_date.isoformat(),
@@ -163,7 +172,8 @@ def markdown_reports(
     """Produce a small index markdown that links to quality + issues outputs."""
 
     run_date = resolve_run_date_from_context(context)
-    reports_dir = Path("reports")
+    partition_key = context.partition_key if context.has_partition_key else None
+    reports_dir = reports_dir_for_partition(run_date.isoformat(), partition_key)
     reports_dir.mkdir(parents=True, exist_ok=True)
     index_path = reports_dir / "index.md"
 
@@ -173,6 +183,10 @@ def markdown_reports(
         issues_count=len(data_issues),
         soda_passed=bool(soda_data_quality.get("passed")),
         soda_paths=soda_paths if isinstance(soda_paths, dict) else None,
+        issues_paths={
+            "md": str(reports_dir / "data_issues.md"),
+            "json": str(reports_dir / "data_issues.json"),
+        },
     )
     index_path.write_text(body, encoding="utf-8")
 
