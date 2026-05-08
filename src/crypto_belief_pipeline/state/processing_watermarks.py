@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import UTC, datetime
-from typing import Any
 
 from botocore.exceptions import ClientError
 from pydantic import BaseModel, Field
@@ -82,7 +81,9 @@ def write_processing_watermark(
 ) -> str:
     s = get_settings()
     b = bucket or s.s3_bucket
-    obj_key = watermark_object_key(watermark.consumer_asset, watermark.source, watermark.partition_key)
+    obj_key = watermark_object_key(
+        watermark.consumer_asset, watermark.source, watermark.partition_key
+    )
     watermark = watermark.model_copy(update={"updated_at": _utc_now_iso()})
     body = json.dumps(watermark.model_dump(), indent=2, sort_keys=True).encode("utf-8")
     client = get_s3_client(settings=s)

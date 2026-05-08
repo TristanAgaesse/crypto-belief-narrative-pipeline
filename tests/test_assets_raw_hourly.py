@@ -25,6 +25,10 @@ class _Ctx:
         self.metadata.append(md)
 
 
+def _asset_fn(asset_def):
+    return asset_def.op.compute_fn.decorated_fn
+
+
 def test_raw_binance_hourly_falls_back_to_api_when_staging_missing(monkeypatch) -> None:
     start = datetime(2026, 5, 7, 11, 0, 0, tzinfo=UTC)
     end = datetime(2026, 5, 7, 12, 0, 0, tzinfo=UTC)
@@ -61,7 +65,7 @@ def test_raw_binance_hourly_falls_back_to_api_when_staging_missing(monkeypatch) 
         _write_jsonl_records,
     )
 
-    out = raw_binance_hourly(ctx)
+    out = _asset_fn(raw_binance_hourly)(ctx)
 
     assert called_limit == 1000
     assert called_start == start
@@ -89,7 +93,10 @@ def test_raw_binance_hourly_falls_back_when_hour_has_missing_slots(monkeypatch) 
         lambda **kwargs: (
             [
                 {
-                    "raw_binance_klines": "raw/provider=binance/date=2026-05-07/hour=11/batch_id=20260507T110000Z.jsonl",
+                    "raw_binance_klines": (
+                        "raw/provider=binance/date=2026-05-07/hour=11/"
+                        "batch_id=20260507T110000Z.jsonl"
+                    ),
                     "source_batch_id": "20260507T110000Z",
                     "source_window_start": "",
                     "source_window_end": "",
@@ -115,7 +122,7 @@ def test_raw_binance_hourly_falls_back_when_hour_has_missing_slots(monkeypatch) 
         lambda records, key, bucket=None: None,
     )
 
-    raw_binance_hourly(ctx)
+    _asset_fn(raw_binance_hourly)(ctx)
     assert api_called is True
 
 
@@ -153,7 +160,7 @@ def test_raw_gdelt_hourly_falls_back_to_api_when_staging_missing(monkeypatch) ->
         _write_jsonl_records,
     )
 
-    out = raw_gdelt_hourly(ctx)
+    out = _asset_fn(raw_gdelt_hourly)(ctx)
 
     assert called_start == start
     assert called_end == end
@@ -175,7 +182,14 @@ def test_raw_polymarket_hourly_falls_back_to_api_when_staging_missing(monkeypatc
     )
     monkeypatch.setattr(
         "crypto_belief_pipeline.orchestration.assets_raw._read_yaml_mapping",
-        lambda path: {"polymarket": {"limit": 25, "keywords": ["btc"], "active": True, "closed": False}},
+        lambda path: {
+            "polymarket": {
+                "limit": 25,
+                "keywords": ["btc"],
+                "active": True,
+                "closed": False,
+            }
+        },
     )
 
     called_limit = 0
@@ -219,7 +233,7 @@ def test_raw_polymarket_hourly_falls_back_to_api_when_staging_missing(monkeypatc
         _write_jsonl_records,
     )
 
-    out = raw_polymarket_hourly(ctx)
+    out = _asset_fn(raw_polymarket_hourly)(ctx)
 
     assert called_limit == 25
     assert called_start == start

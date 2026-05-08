@@ -18,7 +18,11 @@ import yaml
 
 from crypto_belief_pipeline.io_guardrails import resolve_sample_bucket
 from crypto_belief_pipeline.lake.read import LakeKeyNotFound, read_jsonl_records
-from dagster import DailyPartitionsDefinition, HourlyPartitionsDefinition, TimeWindowPartitionsDefinition
+from dagster import (
+    DailyPartitionsDefinition,
+    HourlyPartitionsDefinition,
+    TimeWindowPartitionsDefinition,
+)
 
 # end_offset=1 includes the in-progress UTC day; with 0 the "current" day is not a valid
 # partition key until the window ends, which breaks schedules and manual runs during that day.

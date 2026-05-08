@@ -16,11 +16,11 @@ from crypto_belief_pipeline.orchestration._helpers import (
     _k,
     _partition_tick_now_utc,
     _read_yaml_mapping,
+    _safe_read_jsonl,
+    _sample_guardrails,
     daily_partitions_def,
     hourly_partitions_def,
     raw_bronze_minute_partitions_def,
-    _sample_guardrails,
-    _safe_read_jsonl,
 )
 from crypto_belief_pipeline.orchestration.raw_inputs_from_lake import (
     list_raw_binance_for_partition_window,
@@ -86,7 +86,9 @@ def _needs_api_fallback_for_incomplete_hour(
     if not expected_slots:
         expected_slots = [0]
 
-    batch_ts = [_batch_ts_from_source_batch_id(it.get("source_batch_id") or "") for it in candidates]
+    batch_ts = [
+        _batch_ts_from_source_batch_id(it.get("source_batch_id") or "") for it in candidates
+    ]
     if not any(ts is not None for ts in batch_ts):
         return True
 
@@ -140,9 +142,7 @@ def raw_sample_inputs(context) -> dict[str, str]:
 @asset(
     name="raw_polymarket_staging",
     partitions_def=raw_bronze_minute_partitions_def,
-    description=(
-        "Minute staging ingest: collect Polymarket live markets + prices into raw JSONL."
-    ),
+    description=("Minute staging ingest: collect Polymarket live markets + prices into raw JSONL."),
 )
 def raw_polymarket_staging(context) -> dict[str, str]:
     """Collect Polymarket markets + prices and write raw JSONL to the lake."""
@@ -343,7 +343,9 @@ def raw_gdelt_staging(context) -> dict[str, str]:
     name="raw_polymarket",
     partitions_def=hourly_partitions_def,
     deps=[raw_polymarket_staging],
-    description="Canonical hourly Polymarket raw snapshot derived from minute staging microbatches.",
+    description=(
+        "Canonical hourly Polymarket raw snapshot derived from minute staging microbatches."
+    ),
 )
 def raw_polymarket_hourly(context) -> dict[str, str]:
     run_date = resolve_run_date_from_context(context)

@@ -6,8 +6,6 @@ contract tables (belief_price_snapshots, crypto_candles_1m, narrative_counts).
 
 from __future__ import annotations
 
-import polars as pl
-
 from crypto_belief_pipeline.contracts import (
     SILVER_BELIEF_PRICE_SNAPSHOTS,
     SILVER_CRYPTO_CANDLES_1M,
@@ -17,17 +15,19 @@ from crypto_belief_pipeline.lake.read import read_parquet_df
 from crypto_belief_pipeline.lake.write import write_parquet_df
 from crypto_belief_pipeline.orchestration._helpers import (
     _dup_metrics,
-    hourly_partitions_def,
-    raw_bronze_minute_partitions_def,
     _safe_read_jsonl,
     _with_lineage,
+    hourly_partitions_def,
 )
 from crypto_belief_pipeline.orchestration.assets_raw import (
     raw_binance,
     raw_gdelt,
     raw_polymarket,
 )
-from crypto_belief_pipeline.orchestration.resources import resolve_partition_window_from_context, resolve_run_date_from_context
+from crypto_belief_pipeline.orchestration.resources import (
+    resolve_partition_window_from_context,
+    resolve_run_date_from_context,
+)
 from crypto_belief_pipeline.state.processing_watermarks import (
     build_watermark,
     write_processing_watermark,

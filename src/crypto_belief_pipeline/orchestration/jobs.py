@@ -31,12 +31,16 @@ raw_to_silver__binance__1m_job = define_asset_job(
 
 raw_to_silver__polymarket__5m_job = define_asset_job(
     name="raw_to_silver__polymarket__5m_job",
-    selection=AssetSelection.assets("raw_polymarket", "bronze_polymarket", "silver_belief_price_snapshots"),
+    selection=AssetSelection.assets(
+        "raw_polymarket", "bronze_polymarket", "silver_belief_price_snapshots"
+    ),
 )
 
 raw_to_silver__polymarket_discovery__6h_job = define_asset_job(
     name="raw_to_silver__polymarket_discovery__6h_job",
-    selection=AssetSelection.assets("raw_polymarket", "bronze_polymarket", "silver_belief_price_snapshots"),
+    selection=AssetSelection.assets(
+        "raw_polymarket", "bronze_polymarket", "silver_belief_price_snapshots"
+    ),
 )
 
 raw_to_silver__gdelt__1h_job = define_asset_job(
@@ -68,8 +72,9 @@ quality_to_reports__daily_job = define_asset_job(
 #
 # IMPORTANT:
 # Dagster asset jobs require all selected assets to share a partitions definition.
-# The pipeline now uses different partitions by layer (minute for raw/bronze/silver, daily for gold/quality).
-# So we replace the previous mixed-partition full-stack jobs with partition-compatible manual entrypoints.
+# The pipeline now uses different partitions by layer (minute for raw/bronze/silver,
+# daily for gold/quality). So we replace the previous mixed-partition full-stack jobs
+# with partition-compatible manual entrypoints.
 #
 
 # Manual: minute staging only.
