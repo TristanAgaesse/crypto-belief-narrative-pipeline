@@ -67,6 +67,7 @@ def detect_data_issues(
     market_tags_path: str | Path = "data/sample/market_tags.csv",
     *,
     bucket: str | None = None,
+    partition_key: str | None = None,
 ) -> list[dict]:
     """Run domain-specific data issue detection over the lake's silver + gold layers.
 
@@ -80,8 +81,15 @@ def detect_data_issues(
     candles_partition = partition_path("silver", "crypto_candles_1m", rd)
     narrative_partition = partition_path("silver", "narrative_counts", rd)
 
-    training_key = f"{partition_path('gold', 'training_examples', rd)}/data.parquet"
-    live_key = f"{partition_path('gold', 'live_signals', rd)}/data.parquet"
+    if partition_key:
+        safe = partition_key.replace(":", "-")
+        training_key = (
+            f"{partition_path('gold', 'training_examples', rd)}/partition={safe}/data.parquet"
+        )
+        live_key = f"{partition_path('gold', 'live_signals', rd)}/partition={safe}/data.parquet"
+    else:
+        training_key = f"{partition_path('gold', 'training_examples', rd)}/data.parquet"
+        live_key = f"{partition_path('gold', 'live_signals', rd)}/data.parquet"
 
     belief = _safe_read_partition(belief_partition, bucket=bucket)
     candles = _safe_read_partition(candles_partition, bucket=bucket)

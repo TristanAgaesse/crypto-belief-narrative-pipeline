@@ -5,6 +5,7 @@ import json
 from datetime import UTC, datetime
 
 from botocore.exceptions import ClientError
+from pydantic import ValidationError
 from pydantic import BaseModel, Field
 
 from crypto_belief_pipeline.config import get_settings
@@ -71,8 +72,19 @@ def read_processing_watermark(
         if _is_not_found(e):
             return None
         raise
-    data = json.loads(obj["Body"].read().decode("utf-8"))
-    return ProcessingWatermark.model_validate(data)
+    raw = obj["Body"].read().decode("utf-8")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Corrupt processing watermark JSON: bucket={b!r} key={full_key!r}"
+        ) from e
+    try:
+        return ProcessingWatermark.model_validate(data)
+    except ValidationError as e:
+        raise ValueError(
+            f"Invalid processing watermark schema: bucket={b!r} key={full_key!r}"
+        ) from e
 
 
 def write_processing_watermark(

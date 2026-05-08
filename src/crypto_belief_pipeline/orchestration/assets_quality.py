@@ -41,6 +41,7 @@ _BRONZE_WATERMARK_LOOKUPS: tuple[tuple[str, str], ...] = (
     ("bronze_polymarket", "polymarket"),
     ("bronze_binance", "binance"),
     ("bronze_gdelt", "gdelt"),
+    ("bronze_kalshi", "kalshi"),
 )
 
 
@@ -120,7 +121,11 @@ def soda_data_quality(context) -> dict[str, Any]:
     run_date = resolve_run_date_from_context(context)
     partition_key = context.partition_key if context.has_partition_key else None
     reports_dir = reports_dir_for_partition(run_date.isoformat(), partition_key)
-    summary = run_soda_checks(run_date=run_date.isoformat(), reports_dir=reports_dir)
+    summary = run_soda_checks(
+        run_date=run_date.isoformat(),
+        partition_key=partition_key,
+        reports_dir=reports_dir,
+    )
     context.add_output_metadata(
         {
             "run_date": run_date.isoformat(),
@@ -145,7 +150,7 @@ def data_issues(context) -> list[dict]:
     run_date = resolve_run_date_from_context(context)
     partition_key = context.partition_key if context.has_partition_key else None
     reports_dir = reports_dir_for_partition(run_date.isoformat(), partition_key)
-    issues = detect_data_issues(run_date=run_date.isoformat())
+    issues = detect_data_issues(run_date=run_date.isoformat(), partition_key=partition_key)
     paths = write_data_issues_reports(
         issues,
         md_path=reports_dir / "data_issues.md",
