@@ -47,3 +47,23 @@ def test_compact_daily_from_hourly_empty_returns_none(monkeypatch) -> None:
         run_date="2026-05-06",
     )
     assert out is None
+
+
+def test_compact_daily_from_hourly_writes_to_isolated_dataset(monkeypatch) -> None:
+    keys = [
+        "silver/x_compacted/date=2026-05-06/hour=10/data.parquet",
+        "silver/x_compacted/date=2026-05-06/hour=11/data.parquet",
+        "silver/x_compacted/date=2026-05-06/data.parquet",
+    ]
+    monkeypatch.setattr(comp, "_list_keys", lambda prefix: keys)
+    monkeypatch.setattr(comp, "_read_parquet_keys", lambda ks: pl.DataFrame({"x": [1, 2]}))
+
+    written: list[str] = []
+    monkeypatch.setattr(comp, "write_parquet_df", lambda df, key: written.append(key))
+
+    out = comp.compact_daily_from_hourly(layer="silver", dataset="x", run_date="2026-05-06")
+
+    assert out is not None
+    assert out.input_files == 2
+    assert out.output_key == "silver/x_daily_compacted/date=2026-05-06/data.parquet"
+    assert written == [out.output_key]
