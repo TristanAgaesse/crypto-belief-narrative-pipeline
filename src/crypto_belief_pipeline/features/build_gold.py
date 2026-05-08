@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, datetime, date, timedelta
 from pathlib import Path
 
 import polars as pl
@@ -21,7 +21,7 @@ from crypto_belief_pipeline.features.scoring import (
     add_underreaction_score,
 )
 from crypto_belief_pipeline.lake.paths import partition_path
-from crypto_belief_pipeline.lake.read import read_parquet_df, read_parquet_partition_df
+from crypto_belief_pipeline.lake.read import LakeKeyNotFound, read_parquet_df, read_parquet_partition_df
 from crypto_belief_pipeline.lake.write import write_parquet_df
 
 _PRICE_FEATURE_JOIN_TOLERANCE = timedelta(minutes=2)
@@ -89,6 +89,53 @@ def _gold_keys(run_date: date | str, partition_key: str | None = None) -> tuple[
     return f"{training_prefix}/data.parquet", f"{live_prefix}/data.parquet"
 
 
+def _partition_window_from_key(partition_key: str) -> tuple[datetime, datetime]:
+    start = datetime.strptime(partition_key, "%Y-%m-%d-%H:%M").replace(tzinfo=UTC)
+    return start, start + timedelta(hours=1)
+
+
+def _partition_scoped_fallback_df(
+    *,
+    partition_prefix: str,
+    partition_key: str,
+    bucket: str | None,
+) -> pl.DataFrame:
+    """Fallback read for partitioned silver: scan prefix, then keep this hour only."""
+    df = read_parquet_partition_df(partition_prefix, bucket=bucket)
+    if df.width == 0:
+        # Preserve the original missing-key behavior when nothing exists at all.
+        raise LakeKeyNotFound(f"lake key not found: {partition_prefix}/partition={_safe_partition_slug(partition_key)}/data.parquet")
+    if "timestamp" not in df.columns:
+        raise ValueError(
+            f"partition fallback requires `timestamp` column for hour scoping: {partition_prefix}"
+        )
+    window_start, window_end = _partition_window_from_key(partition_key)
+    return df.filter(
+        (pl.col("timestamp") >= pl.lit(window_start))
+        & (pl.col("timestamp") < pl.lit(window_end))
+    )
+
+
+def _read_partitioned_or_fallback(
+    *,
+    explicit_key: str | None,
+    canonical_key: str,
+    partition_prefix: str,
+    partition_key: str,
+    bucket: str | None,
+) -> pl.DataFrame:
+    if explicit_key is not None:
+        return read_parquet_df(explicit_key, bucket=bucket)
+    try:
+        return read_parquet_df(canonical_key, bucket=bucket)
+    except LakeKeyNotFound:
+        return _partition_scoped_fallback_df(
+            partition_prefix=partition_prefix,
+            partition_key=partition_key,
+            bucket=bucket,
+        )
+
+
 def build_gold_tables(
     run_date: date | str,
     partition_key: str | None = None,
@@ -117,6 +164,9 @@ def build_gold_tables(
     """
 
     if partition_key:
+        belief_partition_prefix = partition_path("silver", "belief_price_snapshots", run_date)
+        candles_partition_prefix = partition_path("silver", "crypto_candles_1m", run_date)
+        narrative_partition_prefix = partition_path("silver", "narrative_counts", run_date)
         belief_fallback = _partition_parquet_key(
             "silver", "belief_price_snapshots", run_date, partition_key
         )
@@ -126,9 +176,27 @@ def build_gold_tables(
         narrative_fallback = _partition_parquet_key(
             "silver", "narrative_counts", run_date, partition_key
         )
-        belief_silver = read_parquet_df(belief_key or belief_fallback, bucket=bucket)
-        candles_silver = read_parquet_df(candles_key or candles_fallback, bucket=bucket)
-        narrative_silver = read_parquet_df(narrative_key or narrative_fallback, bucket=bucket)
+        belief_silver = _read_partitioned_or_fallback(
+            explicit_key=belief_key,
+            canonical_key=belief_fallback,
+            partition_prefix=belief_partition_prefix,
+            partition_key=partition_key,
+            bucket=bucket,
+        )
+        candles_silver = _read_partitioned_or_fallback(
+            explicit_key=candles_key,
+            canonical_key=candles_fallback,
+            partition_prefix=candles_partition_prefix,
+            partition_key=partition_key,
+            bucket=bucket,
+        )
+        narrative_silver = _read_partitioned_or_fallback(
+            explicit_key=narrative_key,
+            canonical_key=narrative_fallback,
+            partition_prefix=narrative_partition_prefix,
+            partition_key=partition_key,
+            bucket=bucket,
+        )
     else:
         belief_silver = (
             read_parquet_df(belief_key, bucket=bucket)

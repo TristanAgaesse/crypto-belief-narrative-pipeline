@@ -3,8 +3,10 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 import polars as pl
+import pytest
 
 import crypto_belief_pipeline.features.build_gold as bg
+from crypto_belief_pipeline.lake.read import LakeKeyNotFound
 
 
 def _belief_silver() -> pl.DataFrame:
@@ -437,3 +439,167 @@ def test_build_gold_live_signals_is_filtered_subset(monkeypatch, tmp_path) -> No
     assert live.height <= training.height
     if live.height > 0:
         assert live["is_candidate_event"].all()
+
+
+def test_build_gold_partitioned_missing_key_falls_back_to_partition_hour_only(
+    monkeypatch, tmp_path
+) -> None:
+    """When canonical partition object is missing, fallback reads stay hour-scoped."""
+    target_hour = datetime(2026, 5, 8, 23, 0, 0, tzinfo=UTC)
+    prior_hour = target_hour - timedelta(hours=1)
+    candles_target = datetime(2026, 5, 8, 23, 0, 30, tzinfo=UTC)
+
+    belief_partition = pl.DataFrame(
+        {
+            "timestamp": [prior_hour, target_hour],
+            "platform": ["polymarket", "polymarket"],
+            "market_id": ["pm_btc_reserve_001", "pm_btc_reserve_001"],
+            "outcome": ["Yes", "Yes"],
+            "price": [0.30, 0.45],
+            "best_bid": [0.29, 0.44],
+            "best_ask": [0.31, 0.46],
+            "spread": [0.02, 0.02],
+            "liquidity": [125000.0, 125000.0],
+            "volume": [800000.0, 800000.0],
+        }
+    )
+    candles_partition = pl.DataFrame(
+        [
+            {
+                "timestamp": prior_hour,
+                "exchange": "binance_usdm",
+                "asset": "BTC",
+                "symbol": "BTCUSDT",
+                "open": 64000.0,
+                "high": 64000.0,
+                "low": 64000.0,
+                "close": 64000.0,
+                "volume": 1.0,
+                "quote_volume": 64000.0,
+                "number_of_trades": 1,
+            },
+            {
+                "timestamp": candles_target,
+                "exchange": "binance_usdm",
+                "asset": "BTC",
+                "symbol": "BTCUSDT",
+                "open": 64100.0,
+                "high": 64100.0,
+                "low": 64100.0,
+                "close": 64100.0,
+                "volume": 1.0,
+                "quote_volume": 64100.0,
+                "number_of_trades": 1,
+            },
+        ]
+    )
+    narrative_partition = pl.DataFrame(
+        {
+            "timestamp": [prior_hour, target_hour],
+            "narrative": ["bitcoin_reserve", "bitcoin_reserve"],
+            "query": ["q", "q"],
+            "mention_volume": [0.0001, 0.0004],
+            "avg_tone": [1.0, 1.0],
+            "source": ["gdelt", "gdelt"],
+        }
+    )
+
+    missing_partition_keys = {
+        "silver/belief_price_snapshots/date=2026-05-08/partition=2026-05-08-23-00/data.parquet",
+        "silver/crypto_candles_1m/date=2026-05-08/partition=2026-05-08-23-00/data.parquet",
+        "silver/narrative_counts/date=2026-05-08/partition=2026-05-08-23-00/data.parquet",
+    }
+    partition_lookup = {
+        "silver/belief_price_snapshots/date=2026-05-08": belief_partition,
+        "silver/crypto_candles_1m/date=2026-05-08": candles_partition,
+        "silver/narrative_counts/date=2026-05-08": narrative_partition,
+    }
+    captured: dict[str, pl.DataFrame] = {}
+
+    def fake_read_parquet_df(key: str, bucket: str | None = None) -> pl.DataFrame:
+        if key in missing_partition_keys:
+            raise LakeKeyNotFound(f"lake key not found: {key}")
+        raise AssertionError(f"Unexpected direct parquet key read: {key}")
+
+    monkeypatch.setattr(bg, "read_parquet_df", fake_read_parquet_df)
+    monkeypatch.setattr(
+        bg, "read_parquet_partition_df", lambda prefix, bucket=None: partition_lookup[prefix]
+    )
+    monkeypatch.setattr(
+        bg, "write_parquet_df", lambda df, key, bucket=None: captured.setdefault(key, df)
+    )
+
+    tags_csv = tmp_path / "market_tags.csv"
+    tags_csv.write_text(
+        "market_id,asset,narrative,direction,relevance,confidence,notes\n"
+        "pm_btc_reserve_001,BTC,bitcoin_reserve,1,high,0.9,sample\n"
+    )
+
+    bg.build_gold_tables(
+        run_date="2026-05-08",
+        partition_key="2026-05-08-23:00",
+        market_tags_path=tags_csv,
+    )
+
+    training = captured[
+        "gold/training_examples/date=2026-05-08/partition=2026-05-08-23-00/data.parquet"
+    ]
+    assert training.height >= 1
+    assert training["event_time"].min() >= target_hour
+    assert training["event_time"].max() < (target_hour + timedelta(hours=1))
+
+
+def test_build_gold_partitioned_fallback_requires_timestamp_column(
+    monkeypatch, tmp_path
+) -> None:
+    missing_partition_keys = {
+        "silver/belief_price_snapshots/date=2026-05-08/partition=2026-05-08-23-00/data.parquet",
+        "silver/crypto_candles_1m/date=2026-05-08/partition=2026-05-08-23-00/data.parquet",
+        "silver/narrative_counts/date=2026-05-08/partition=2026-05-08-23-00/data.parquet",
+    }
+    partition_lookup = {
+        "silver/belief_price_snapshots/date=2026-05-08": pl.DataFrame(
+            {
+                "platform": ["polymarket"],
+                "market_id": ["pm_btc_reserve_001"],
+                "outcome": ["Yes"],
+                "price": [0.45],
+            }
+        ),
+        "silver/crypto_candles_1m/date=2026-05-08": pl.DataFrame(
+            {
+                "asset": ["BTC"],
+                "close": [64100.0],
+            }
+        ),
+        "silver/narrative_counts/date=2026-05-08": pl.DataFrame(
+            {
+                "narrative": ["bitcoin_reserve"],
+                "mention_volume": [0.0004],
+            }
+        ),
+    }
+
+    def fake_read_parquet_df(key: str, bucket: str | None = None) -> pl.DataFrame:
+        if key in missing_partition_keys:
+            raise LakeKeyNotFound(f"lake key not found: {key}")
+        raise AssertionError(f"Unexpected direct parquet key read: {key}")
+
+    monkeypatch.setattr(bg, "read_parquet_df", fake_read_parquet_df)
+    monkeypatch.setattr(
+        bg, "read_parquet_partition_df", lambda prefix, bucket=None: partition_lookup[prefix]
+    )
+    monkeypatch.setattr(bg, "write_parquet_df", lambda df, key, bucket=None: None)
+
+    tags_csv = tmp_path / "market_tags.csv"
+    tags_csv.write_text(
+        "market_id,asset,narrative,direction,relevance,confidence,notes\n"
+        "pm_btc_reserve_001,BTC,bitcoin_reserve,1,high,0.9,sample\n"
+    )
+
+    with pytest.raises(ValueError, match="requires `timestamp` column"):
+        bg.build_gold_tables(
+            run_date="2026-05-08",
+            partition_key="2026-05-08-23:00",
+            market_tags_path=tags_csv,
+        )

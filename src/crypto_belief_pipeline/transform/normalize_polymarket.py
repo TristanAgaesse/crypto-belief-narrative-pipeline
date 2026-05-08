@@ -36,6 +36,19 @@ def _raw_json(records: list[dict]) -> list[str]:
     return [json.dumps(r.get("raw") or r, ensure_ascii=False) for r in records]
 
 
+def _to_float_or_none(value: object) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if not isinstance(value, (int, float, str)):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def normalize_markets(records: list[dict]) -> pl.DataFrame:
     if not records:
         return pl.DataFrame(
@@ -57,7 +70,12 @@ def normalize_markets(records: list[dict]) -> pl.DataFrame:
     # Omit ``raw`` (full Gamma market dict per row) from ``pl.DataFrame(...)``. It is deep and
     # wide; Polars would build a heavy nested/struct column we never use in ``select``, while
     # bronze columns are only the flat contract fields plus ``raw_json`` for lineage.
-    slim = [{k: v for k, v in r.items() if k != "raw"} for r in records]
+    slim = []
+    for r in records:
+        row = {k: v for k, v in r.items() if k != "raw"}
+        row["liquidity"] = _to_float_or_none(row.get("liquidity"))
+        row["volume"] = _to_float_or_none(row.get("volume"))
+        slim.append(row)
     df = pl.DataFrame(slim).with_columns(pl.Series("raw_json", _raw_json(records)))
 
     bronze = df.select(
@@ -100,7 +118,15 @@ def normalize_price_snapshots(records: list[dict]) -> pl.DataFrame:
         )
 
     # Same as ``normalize_markets``: keep lineage in ``raw_json`` only, not as a DataFrame column.
-    slim = [{k: v for k, v in r.items() if k != "raw"} for r in records]
+    slim = []
+    for r in records:
+        row = {k: v for k, v in r.items() if k != "raw"}
+        row["price"] = _to_float_or_none(row.get("price"))
+        row["best_bid"] = _to_float_or_none(row.get("best_bid"))
+        row["best_ask"] = _to_float_or_none(row.get("best_ask"))
+        row["liquidity"] = _to_float_or_none(row.get("liquidity"))
+        row["volume"] = _to_float_or_none(row.get("volume"))
+        slim.append(row)
     df = pl.DataFrame(slim).with_columns(pl.Series("raw_json", _raw_json(records)))
 
     bronze = (

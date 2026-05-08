@@ -90,6 +90,63 @@ def test_normalize_price_snapshots_spread() -> None:
     assert df["spread"][0] == pytest.approx(0.02)
 
 
+def test_normalize_price_snapshots_handles_mixed_int_and_float_numeric_fields() -> None:
+    records = [
+        {
+            "timestamp": "2026-05-06T10:00:00Z",
+            "market_id": "pm_btc_reserve_001",
+            "outcome": "Yes",
+            "price": 0,
+            "best_bid": 0,
+            "best_ask": 0,
+            "liquidity": 10,
+            "volume": 20,
+            "raw": {"source": "sample"},
+        },
+        {
+            "timestamp": "2026-05-06T10:01:00Z",
+            "market_id": "pm_btc_reserve_001",
+            "outcome": "Yes",
+            "price": 0.04,
+            "best_bid": 0.03,
+            "best_ask": 0.05,
+            "liquidity": 10.5,
+            "volume": 20.25,
+            "raw": {"source": "sample"},
+        },
+    ]
+    df = normalize_price_snapshots(records)
+    assert df.height == 2
+    assert df.schema["price"] == pl.Float64
+    assert df.schema["best_bid"] == pl.Float64
+    assert df.schema["best_ask"] == pl.Float64
+    assert df["spread"].max() == pytest.approx(0.02)
+
+
+def test_normalize_price_snapshots_treats_boolean_numeric_fields_as_null() -> None:
+    records = [
+        {
+            "timestamp": "2026-05-06T10:00:00Z",
+            "market_id": "pm_btc_reserve_001",
+            "outcome": "Yes",
+            "price": True,
+            "best_bid": False,
+            "best_ask": True,
+            "liquidity": False,
+            "volume": True,
+            "raw": {"source": "sample"},
+        }
+    ]
+    df = normalize_price_snapshots(records)
+    assert df.height == 1
+    assert df["price"][0] is None
+    assert df["best_bid"][0] is None
+    assert df["best_ask"][0] is None
+    assert df["liquidity"][0] is None
+    assert df["volume"][0] is None
+    assert df["spread"][0] is None
+
+
 def test_to_belief_price_snapshots_sets_platform() -> None:
     bronze_records = load_sample_jsonl("polymarket_prices_sample.jsonl")
     bronze = normalize_price_snapshots(bronze_records)
