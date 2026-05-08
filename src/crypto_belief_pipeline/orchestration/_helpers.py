@@ -18,11 +18,30 @@ import yaml
 
 from crypto_belief_pipeline.io_guardrails import resolve_sample_bucket
 from crypto_belief_pipeline.lake.read import LakeKeyNotFound, read_jsonl_records
-from dagster import DailyPartitionsDefinition
+from dagster import DailyPartitionsDefinition, HourlyPartitionsDefinition, TimeWindowPartitionsDefinition
 
 # end_offset=1 includes the in-progress UTC day; with 0 the "current" day is not a valid
 # partition key until the window ends, which breaks schedules and manual runs during that day.
-partitions_def = DailyPartitionsDefinition(start_date="2026-05-06", end_offset=1)
+daily_partitions_def = DailyPartitionsDefinition(start_date="2026-05-06", end_offset=1)
+
+# Canonical minute partitions for raw+bronze ingestion/normalization assets.
+raw_bronze_minute_partitions_def = TimeWindowPartitionsDefinition(
+    # UTC partitions; omit explicit timezone to keep keys simple.
+    start="2026-05-06T00:00",
+    cron_schedule="* * * * *",
+    fmt="%Y-%m-%dT%H:%M",
+)
+
+# Canonical hourly partitions for recomputable curated outputs in every layer.
+hourly_partitions_def = HourlyPartitionsDefinition(
+    start_date="2026-05-06-00:00",
+)
+
+# Backward compatibility aliases.
+silver_hourly_partitions_def = hourly_partitions_def
+
+# Backward compatibility alias for modules still importing `partitions_def`.
+partitions_def = daily_partitions_def
 
 
 def _partition_bounds_utc(run_date: date) -> tuple[datetime, datetime]:
@@ -41,11 +60,11 @@ def _partition_tick_now_utc(run_date: date) -> datetime:
     now = datetime.now(UTC)
 
     if now >= part_end:
-        now = part_end - timedelta(minutes=1)
+        now = part_end - timedelta(seconds=1)
     if now < part_start:
         now = part_start
 
-    return now.replace(second=0, microsecond=0)
+    return now.replace(microsecond=0)
 
 
 def _clamp_window_to_partition(
@@ -130,6 +149,10 @@ def _safe_read_jsonl(key: str, bucket: str | None = None) -> list[dict]:
 
 
 __all__ = [
+    "daily_partitions_def",
+    "hourly_partitions_def",
+    "raw_bronze_minute_partitions_def",
+    "silver_hourly_partitions_def",
     "_clamp_window_to_partition",
     "_dup_metrics",
     "_k",

@@ -25,6 +25,15 @@ from crypto_belief_pipeline.lake.read import read_parquet_df, read_parquet_parti
 from crypto_belief_pipeline.lake.write import write_parquet_df
 
 
+def _safe_partition_slug(partition_key: str) -> str:
+    return partition_key.replace(":", "-")
+
+
+def _partition_parquet_key(layer: str, dataset: str, run_date: date | str, partition_key: str) -> str:
+    prefix = partition_path(layer, dataset, run_date)
+    return f"{prefix}/partition={_safe_partition_slug(partition_key)}/data.parquet"
+
+
 def _normalize_event_time_utc(df: pl.DataFrame) -> pl.DataFrame:
     """Ensure event_time is consistently timezone-aware UTC for joins.
 
@@ -41,7 +50,12 @@ def _normalize_event_time_utc(df: pl.DataFrame) -> pl.DataFrame:
     return df.with_columns(pl.col("event_time").dt.convert_time_zone("UTC"))
 
 
-def _gold_keys(run_date: date | str) -> tuple[str, str]:
+def _gold_keys(run_date: date | str, partition_key: str | None = None) -> tuple[str, str]:
+    if partition_key:
+        return (
+            _partition_parquet_key("gold", "training_examples", run_date, partition_key),
+            _partition_parquet_key("gold", "live_signals", run_date, partition_key),
+        )
     training_prefix = partition_path("gold", "training_examples", run_date)
     live_prefix = partition_path("gold", "live_signals", run_date)
     return f"{training_prefix}/data.parquet", f"{live_prefix}/data.parquet"
@@ -49,6 +63,7 @@ def _gold_keys(run_date: date | str) -> tuple[str, str]:
 
 def build_gold_tables(
     run_date: date | str,
+    partition_key: str | None = None,
     belief_key: str | None = None,
     candles_key: str | None = None,
     narrative_key: str | None = None,
@@ -73,27 +88,37 @@ def build_gold_tables(
     When provided (e.g. CLI threading exact outputs), reads that concrete object key.
     """
 
-    belief_silver = (
-        read_parquet_df(belief_key, bucket=bucket)
-        if belief_key is not None
-        else read_parquet_partition_df(
-            partition_path("silver", "belief_price_snapshots", run_date), bucket=bucket
+    if partition_key:
+        belief_fallback = _partition_parquet_key(
+            "silver", "belief_price_snapshots", run_date, partition_key
         )
-    )
-    candles_silver = (
-        read_parquet_df(candles_key, bucket=bucket)
-        if candles_key is not None
-        else read_parquet_partition_df(
-            partition_path("silver", "crypto_candles_1m", run_date), bucket=bucket
+        candles_fallback = _partition_parquet_key("silver", "crypto_candles_1m", run_date, partition_key)
+        narrative_fallback = _partition_parquet_key("silver", "narrative_counts", run_date, partition_key)
+        belief_silver = read_parquet_df(belief_key or belief_fallback, bucket=bucket)
+        candles_silver = read_parquet_df(candles_key or candles_fallback, bucket=bucket)
+        narrative_silver = read_parquet_df(narrative_key or narrative_fallback, bucket=bucket)
+    else:
+        belief_silver = (
+            read_parquet_df(belief_key, bucket=bucket)
+            if belief_key is not None
+            else read_parquet_partition_df(
+                partition_path("silver", "belief_price_snapshots", run_date), bucket=bucket
+            )
         )
-    )
-    narrative_silver = (
-        read_parquet_df(narrative_key, bucket=bucket)
-        if narrative_key is not None
-        else read_parquet_partition_df(
-            partition_path("silver", "narrative_counts", run_date), bucket=bucket
+        candles_silver = (
+            read_parquet_df(candles_key, bucket=bucket)
+            if candles_key is not None
+            else read_parquet_partition_df(
+                partition_path("silver", "crypto_candles_1m", run_date), bucket=bucket
+            )
         )
-    )
+        narrative_silver = (
+            read_parquet_df(narrative_key, bucket=bucket)
+            if narrative_key is not None
+            else read_parquet_partition_df(
+                partition_path("silver", "narrative_counts", run_date), bucket=bucket
+            )
+        )
 
     tags = validate_market_tags(load_market_tags(market_tags_path))
 
@@ -104,6 +129,16 @@ def build_gold_tables(
     belief_features = _normalize_event_time_utc(belief_features)
     narrative_features = _normalize_event_time_utc(narrative_features)
     price_features = _normalize_event_time_utc(price_features)
+
+    # Deterministic replay safety: collapse duplicated rows before joins.
+    belief_subset = ["event_time", "market_id"]
+    if "outcome" in belief_features.columns:
+        belief_subset.append("outcome")
+    belief_features = belief_features.unique(subset=belief_subset, keep="last")
+
+    price_subset = ["event_time", "asset"]
+    if all(c in price_features.columns for c in price_subset):
+        price_features = price_features.unique(subset=price_subset, keep="last")
 
     joined = belief_features.join(
         narrative_features, on=["event_time", "narrative"], how="left"
@@ -116,7 +151,7 @@ def build_gold_tables(
 
     live_signals = training_examples.filter(pl.col("is_candidate_event"))
 
-    training_key, live_key = _gold_keys(run_date)
+    training_key, live_key = _gold_keys(run_date, partition_key)
 
     GOLD_TRAINING_EXAMPLES.validate(training_examples)
     GOLD_LIVE_SIGNALS.validate(live_signals)

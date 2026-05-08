@@ -31,12 +31,16 @@ from crypto_belief_pipeline.orchestration.assets_quality import (
     data_issues,
     gold_tables,
     markdown_reports,
+    processing_gaps,
     soda_data_quality,
 )
 from crypto_belief_pipeline.orchestration.assets_raw import (
     raw_binance,
+    raw_binance_staging,
     raw_gdelt,
+    raw_gdelt_staging,
     raw_polymarket,
+    raw_polymarket_staging,
     raw_sample_inputs,
 )
 from crypto_belief_pipeline.orchestration.assets_transform import (
@@ -50,6 +54,9 @@ from crypto_belief_pipeline.orchestration.assets_transform import (
 
 ALL_ASSETS = [
     raw_sample_inputs,
+    raw_polymarket_staging,
+    raw_binance_staging,
+    raw_gdelt_staging,
     raw_polymarket,
     raw_binance,
     raw_gdelt,
@@ -61,6 +68,7 @@ ALL_ASSETS = [
     silver_narrative_counts,
     gold_tables,
     soda_data_quality,
+    processing_gaps,
     data_issues,
     markdown_reports,
 ]
@@ -83,10 +91,14 @@ __all__ = [
     "data_issues",
     "gold_tables",
     "markdown_reports",
+    "processing_gaps",
     "partitions_def",
     "raw_binance",
+    "raw_binance_staging",
     "raw_gdelt",
+    "raw_gdelt_staging",
     "raw_polymarket",
+    "raw_polymarket_staging",
     "raw_sample_inputs",
     "silver_belief_price_snapshots",
     "silver_crypto_candles_1m",

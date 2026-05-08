@@ -14,7 +14,7 @@ from typing import Any
 
 from crypto_belief_pipeline.dq.soda import run_soda_checks
 from crypto_belief_pipeline.features.build_gold import build_gold_tables
-from crypto_belief_pipeline.orchestration._helpers import partitions_def
+from crypto_belief_pipeline.orchestration._helpers import hourly_partitions_def
 from crypto_belief_pipeline.orchestration.assets_transform import (
     silver_belief_price_snapshots,
     silver_crypto_candles_1m,
@@ -22,6 +22,7 @@ from crypto_belief_pipeline.orchestration.assets_transform import (
 )
 from crypto_belief_pipeline.orchestration.resources import resolve_run_date_from_context
 from crypto_belief_pipeline.quality.issues import detect_data_issues, write_data_issues_reports
+from crypto_belief_pipeline.state.processing_watermarks import read_processing_watermark
 from crypto_belief_pipeline.reports.index_md import render_reports_index_md
 from dagster import (
     AssetDep,
@@ -34,8 +35,40 @@ from dagster import (
 )
 
 
+# Bronze layer writes these watermarks (see ``assets_transform``); bounded reads per partition.
+_BRONZE_WATERMARK_LOOKUPS: tuple[tuple[str, str], ...] = (
+    ("bronze_polymarket", "polymarket"),
+    ("bronze_binance", "binance"),
+    ("bronze_gdelt", "gdelt"),
+)
+
+
+def _scan_processing_gaps_for_partition(partition_key: str) -> list[dict[str, Any]]:
+    """Return non-ok bronze watermarks for this hourly partition only (O(1) S3 reads)."""
+    gaps: list[dict[str, Any]] = []
+    for consumer_asset, source in _BRONZE_WATERMARK_LOOKUPS:
+        wm = read_processing_watermark(
+            consumer_asset=consumer_asset,
+            source=source,
+            partition_key=partition_key,
+        )
+        if wm is None:
+            continue
+        if wm.status != "ok":
+            gaps.append(
+                {
+                    "consumer_asset": consumer_asset,
+                    "source": wm.source or source,
+                    "partition_key": wm.partition_key or partition_key,
+                    "missing_key": wm.last_processed_batch_id or "",
+                    "reason": f"watermark_status={wm.status}",
+                }
+            )
+    return gaps
+
+
 @multi_asset(
-    partitions_def=partitions_def,
+    partitions_def=hourly_partitions_def,
     deps=[silver_belief_price_snapshots, silver_crypto_candles_1m, silver_narrative_counts],
     outs={"gold_training_examples": AssetOut(), "gold_live_signals": AssetOut()},
     description="Build gold tables (training_examples + live_signals) from silver inputs.",
@@ -48,6 +81,7 @@ def gold_tables(
     run_date = resolve_run_date_from_context(context)
     written = build_gold_tables(
         run_date=run_date.isoformat(),
+        partition_key=context.partition_key if context.has_partition_key else None,
     )
 
     training_key = written["training_examples"]
@@ -74,7 +108,7 @@ def gold_tables(
 
 
 @asset(
-    partitions_def=partitions_def,
+    partitions_def=hourly_partitions_def,
     deps=[
         AssetDep(AssetKey("gold_training_examples")),
         AssetDep(AssetKey("gold_live_signals")),
@@ -96,7 +130,7 @@ def soda_data_quality(context) -> dict[str, Any]:
 
 
 @asset(
-    partitions_def=partitions_def,
+    partitions_def=hourly_partitions_def,
     deps=[
         soda_data_quality,
         AssetDep(AssetKey("gold_training_examples")),
@@ -119,7 +153,7 @@ def data_issues(context) -> list[dict]:
 
 
 @asset(
-    partitions_def=partitions_def,
+    partitions_def=hourly_partitions_def,
     deps=[data_issues, soda_data_quality],
     description="Write a lightweight markdown index that links to Soda + data-issues reports.",
 )
@@ -149,4 +183,27 @@ def markdown_reports(
     return out
 
 
-__all__ = ["data_issues", "gold_tables", "markdown_reports", "soda_data_quality"]
+@asset(
+    partitions_def=hourly_partitions_def,
+    deps=[soda_data_quality],
+    description=(
+        "For this hourly partition, read bronze processing watermarks only (bounded S3 reads) "
+        "and surface non-ok statuses as structured gap records."
+    ),
+)
+def processing_gaps(context) -> list[dict[str, Any]]:
+    run_date = resolve_run_date_from_context(context)
+    partition_key = context.partition_key if context.has_partition_key else ""
+    gaps = _scan_processing_gaps_for_partition(partition_key) if partition_key else []
+    context.add_output_metadata(
+        {
+            "run_date": run_date.isoformat(),
+            "partition_key": partition_key,
+            "gaps_count": len(gaps),
+            "gaps_sample": MetadataValue.json(gaps[:20]),
+        }
+    )
+    return gaps
+
+
+__all__ = ["data_issues", "gold_tables", "markdown_reports", "processing_gaps", "soda_data_quality"]
