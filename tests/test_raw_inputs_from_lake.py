@@ -97,6 +97,60 @@ def test_unseen_raw_inputs_uses_watermark(monkeypatch) -> None:
     assert out[0]["raw_binance_klines"] == "b"
 
 
+def test_unseen_raw_inputs_does_not_use_lexicographic_batch_order(monkeypatch) -> None:
+    class _WM:
+        last_processed_batch_id = "20260507T110010Z_z"
+
+    monkeypatch.setattr(ri, "read_processing_watermark", lambda **kwargs: _WM())
+    out = ri.unseen_raw_inputs_for_partition(
+        consumer_asset="bronze_binance",
+        source="binance",
+        partition_key="2026-05-07T11:00",
+        candidate_inputs=[
+            {"raw_binance_klines": "old", "source_batch_id": "20260507T110009Z_zzzz"},
+            {"raw_binance_klines": "new", "source_batch_id": "20260507T110011Z_a"},
+        ],
+        key_fields=("raw_binance_klines", "source_batch_id"),
+    )
+    assert [it["raw_binance_klines"] for it in out] == ["new"]
+
+
+def test_unseen_raw_inputs_reprocesses_when_batch_id_malformed(monkeypatch) -> None:
+    class _WM:
+        last_processed_batch_id = "not-sortable"
+
+    monkeypatch.setattr(ri, "read_processing_watermark", lambda **kwargs: _WM())
+    out = ri.unseen_raw_inputs_for_partition(
+        consumer_asset="bronze_binance",
+        source="binance",
+        partition_key="2026-05-07T11:00",
+        candidate_inputs=[
+            {"raw_binance_klines": "a", "source_batch_id": "also-bad"},
+            {"raw_binance_klines": "a", "source_batch_id": "also-bad"},
+        ],
+        key_fields=("raw_binance_klines", "source_batch_id"),
+    )
+    assert out == [{"raw_binance_klines": "a", "source_batch_id": "also-bad"}]
+
+
+def test_unseen_raw_inputs_keeps_same_second_batch_with_larger_suffix(monkeypatch) -> None:
+    class _WM:
+        last_processed_batch_id = "20260507T110010Z_a"
+
+    monkeypatch.setattr(ri, "read_processing_watermark", lambda **kwargs: _WM())
+    out = ri.unseen_raw_inputs_for_partition(
+        consumer_asset="bronze_binance",
+        source="binance",
+        partition_key="2026-05-07T11:00",
+        candidate_inputs=[
+            {"raw_binance_klines": "seen", "source_batch_id": "20260507T110010Z_a"},
+            {"raw_binance_klines": "newer", "source_batch_id": "20260507T110010Z_b"},
+        ],
+        key_fields=("raw_binance_klines", "source_batch_id"),
+    )
+    assert [it["raw_binance_klines"] for it in out] == ["newer"]
+
+
 def test_list_binance_for_partition_window_spans_date_boundary(monkeypatch) -> None:
     keys_by_prefix = {
         "raw/provider=binance/date=2026-05-07": [
@@ -130,7 +184,9 @@ def test_list_binance_for_partition_window_spans_date_boundary(monkeypatch) -> N
         "list_raw_gdelt_for_partition_window",
     ],
 )
-def test_list_raw_window_final_raise_includes_window_not_nameerror(monkeypatch, fn_name: str) -> None:
+def test_list_raw_window_final_raise_includes_window_not_nameerror(
+    monkeypatch, fn_name: str
+) -> None:
     monkeypatch.setattr(ri, "_candidate_buckets", lambda: [])
     fn = getattr(ri, fn_name)
     start = datetime(2026, 5, 7, 11, 0, 0, tzinfo=UTC)

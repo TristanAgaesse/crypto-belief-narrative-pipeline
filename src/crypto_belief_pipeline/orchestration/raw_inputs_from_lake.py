@@ -39,13 +39,49 @@ def _batch_id_from_micro_key(key: str) -> str:
 
 def _batch_ts_from_key(key: str) -> datetime | None:
     bid = _batch_id_from_micro_key(key)
-    if not bid:
+    return _batch_ts_from_batch_id(bid)
+
+
+def _batch_ts_from_batch_id(batch_id: str) -> datetime | None:
+    if not batch_id:
         return None
-    core = bid.split("_", 1)[0]
+    core = batch_id.split("_", 1)[0]
     try:
         return datetime.strptime(core, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC)
     except ValueError:
         return None
+
+
+def _dedupe_candidates(
+    candidate_inputs: list[dict[str, str]],
+    key_fields: tuple[str, ...],
+) -> list[dict[str, str]]:
+    seen: set[tuple[str, ...]] = set()
+    out: list[dict[str, str]] = []
+    for item in candidate_inputs:
+        sig = tuple(str(item.get(k, "")) for k in key_fields)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        out.append(item)
+    return out
+
+
+def _is_batch_newer_than_watermark(
+    candidate_batch_id: str,
+    *,
+    watermark_batch_id: str,
+    watermark_ts: datetime,
+) -> bool:
+    candidate_ts = _batch_ts_from_batch_id(candidate_batch_id)
+    if candidate_ts is None:
+        # Keep malformed/legacy candidate ids for safety; downstream dedupe keeps
+        # retries deterministic.
+        return True
+    if candidate_ts != watermark_ts:
+        return candidate_ts > watermark_ts
+    # Tie-break same-second microbatches by full id (suffix carries order).
+    return candidate_batch_id > watermark_batch_id
 
 
 def _is_microbatch_non_polymarket_jsonl(k: str) -> bool:
@@ -64,7 +100,13 @@ def _partition_dates_for_window(partition_start: datetime, partition_end: dateti
     return out
 
 
-def _list_window_jsonl_keys(dataset: str, partition_start: datetime, partition_end: datetime, *, bucket: str) -> set[str]:
+def _list_window_jsonl_keys(
+    dataset: str,
+    partition_start: datetime,
+    partition_end: datetime,
+    *,
+    bucket: str,
+) -> set[str]:
     keys: set[str] = set()
     for run_date in _partition_dates_for_window(partition_start, partition_end):
         prefix = partition_path("raw", dataset, run_date)
@@ -140,8 +182,12 @@ def list_raw_polymarket_for_partition_window(
     last_err: FileNotFoundError | None = None
     for bucket in _candidate_buckets():
         try:
-            keys = _list_window_jsonl_keys("provider=polymarket", partition_start, partition_end, bucket=bucket)
-            micro_markets = sorted(k for k in keys if k.endswith("_markets.jsonl") and "/batch_id=" in k)
+            keys = _list_window_jsonl_keys(
+                "provider=polymarket", partition_start, partition_end, bucket=bucket
+            )
+            micro_markets = sorted(
+                k for k in keys if k.endswith("_markets.jsonl") and "/batch_id=" in k
+            )
             out: list[dict[str, str]] = []
             for mk in micro_markets:
                 ts = _batch_ts_from_key(mk)
@@ -218,7 +264,9 @@ def list_raw_binance_for_partition_window(
     last_err: FileNotFoundError | None = None
     for bucket in _candidate_buckets():
         try:
-            keys = _list_window_jsonl_keys("provider=binance", partition_start, partition_end, bucket=bucket)
+            keys = _list_window_jsonl_keys(
+                "provider=binance", partition_start, partition_end, bucket=bucket
+            )
             micro = sorted(k for k in keys if _is_microbatch_non_polymarket_jsonl(k))
             out: list[dict[str, str]] = []
             for chosen in micro:
@@ -301,7 +349,9 @@ def list_raw_gdelt_for_partition_window(
     last_err: FileNotFoundError | None = None
     for bucket in _candidate_buckets():
         try:
-            keys = _list_window_jsonl_keys("provider=gdelt", partition_start, partition_end, bucket=bucket)
+            keys = _list_window_jsonl_keys(
+                "provider=gdelt", partition_start, partition_end, bucket=bucket
+            )
             micro = sorted(k for k in keys if _is_microbatch_non_polymarket_jsonl(k))
             out: list[dict[str, str]] = []
             for chosen in micro:
@@ -343,25 +393,25 @@ def unseen_raw_inputs_for_partition(
         partition_key=partition_key,
     )
     if wm is None or not wm.last_processed_batch_id:
-        return candidate_inputs
+        return _dedupe_candidates(candidate_inputs, key_fields)
+    watermark_batch_id = wm.last_processed_batch_id
+    watermark_ts = _batch_ts_from_batch_id(watermark_batch_id)
+    if watermark_ts is None:
+        # Old or malformed watermarks are not safe to compare. Reprocess
+        # candidates deterministically rather than silently skipping new input.
+        return _dedupe_candidates(candidate_inputs, key_fields)
     unseen: list[dict[str, str]] = []
     for item in candidate_inputs:
         bid = item.get("source_batch_id") or ""
-        if bid > wm.last_processed_batch_id:
+        if _is_batch_newer_than_watermark(
+            bid,
+            watermark_batch_id=watermark_batch_id,
+            watermark_ts=watermark_ts,
+        ):
             unseen.append(item)
-    # Safety fallback for old watermarks/malformed ids: keep deterministic order.
     if not unseen:
         return []
-    # De-duplicate by key fields.
-    seen: set[tuple[str, ...]] = set()
-    out: list[dict[str, str]] = []
-    for item in unseen:
-        sig = tuple(str(item.get(k, "")) for k in key_fields)
-        if sig in seen:
-            continue
-        seen.add(sig)
-        out.append(item)
-    return out
+    return _dedupe_candidates(unseen, key_fields)
 
 
 __all__ = [
