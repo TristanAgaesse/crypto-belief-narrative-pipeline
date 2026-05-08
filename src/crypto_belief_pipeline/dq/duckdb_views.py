@@ -94,8 +94,20 @@ def _silver_partition_glob(rd: str, dataset: str) -> str:
     return f"{base}/**/*.parquet"
 
 
-def _gold_single_file(rd: str, dataset: str) -> str:
-    return f"{partition_path('gold', dataset, rd)}/data.parquet"
+def _safe_partition_slug(partition_key: str) -> str:
+    return partition_key.replace(":", "-")
+
+
+def _gold_key(rd: str, dataset: str, partition_key: str | None) -> str:
+    """Resolve a gold parquet path for either daily or hourly-partitioned layouts.
+
+    - Daily (CLI/sample): ``gold/<dataset>/date=YYYY-MM-DD/data.parquet``
+    - Hourly (Dagster): ``gold/<dataset>/date=YYYY-MM-DD/partition=YYYY-MM-DD-HH-00/data.parquet``
+    """
+    base = partition_path("gold", dataset, rd)
+    if partition_key:
+        return f"{base}/partition={_safe_partition_slug(partition_key)}/data.parquet"
+    return f"{base}/data.parquet"
 
 
 def create_duckdb_quality_db(
@@ -104,6 +116,7 @@ def create_duckdb_quality_db(
     *,
     materialize_tables: bool = False,
     bucket: str | None = None,
+    partition_key: str | None = None,
 ) -> Path:
     """Create DuckDB views (default) over lake Parquet for a given run_date.
 
@@ -133,10 +146,24 @@ def create_duckdb_quality_db(
         ),
         "silver_crypto_candles_1m": _lake_key(_silver_partition_glob(rd, "crypto_candles_1m")),
         "silver_narrative_counts": _lake_key(_silver_partition_glob(rd, "narrative_counts")),
+        "silver_kalshi_markets": _lake_key(_silver_partition_glob(rd, "kalshi_markets")),
+        "silver_kalshi_market_snapshots": _lake_key(
+            _silver_partition_glob(rd, "kalshi_market_snapshots")
+        ),
+        "silver_kalshi_events": _lake_key(_silver_partition_glob(rd, "kalshi_events")),
+        "silver_kalshi_series": _lake_key(_silver_partition_glob(rd, "kalshi_series")),
+        "silver_kalshi_trades": _lake_key(_silver_partition_glob(rd, "kalshi_trades")),
+        "silver_kalshi_orderbook_snapshots": _lake_key(
+            _silver_partition_glob(rd, "kalshi_orderbook_snapshots")
+        ),
+        "silver_kalshi_candlesticks": _lake_key(_silver_partition_glob(rd, "kalshi_candlesticks")),
+        "silver_kalshi_event_repricing_features": _lake_key(
+            _silver_partition_glob(rd, "kalshi_event_repricing_features")
+        ),
     }
     gold_keys: dict[str, str] = {
-        "gold_training_examples": _lake_key(_gold_single_file(rd, "training_examples")),
-        "gold_live_signals": _lake_key(_gold_single_file(rd, "live_signals")),
+        "gold_training_examples": _lake_key(_gold_key(rd, "training_examples", partition_key)),
+        "gold_live_signals": _lake_key(_gold_key(rd, "live_signals", partition_key)),
     }
 
     con = duckdb.connect(str(dbp))
@@ -151,7 +178,9 @@ def create_duckdb_quality_db(
 
         for name, key in gold_keys.items():
             uri = _s3_uri(key, bucket=target_bucket)
-            select_expr = f"SELECT * FROM read_parquet({_sql_quote(uri)})"
+            # Use union_by_name so both single-file and partitioned gold layouts are tolerant
+            # to schema evolution and match silver view behavior.
+            select_expr = f"SELECT * FROM read_parquet({_sql_quote(uri)}, union_by_name=true)"
             verb = "TABLE" if materialize_tables else "VIEW"
             con.execute(f"CREATE OR REPLACE {verb} {name} AS {select_expr};")
     finally:
