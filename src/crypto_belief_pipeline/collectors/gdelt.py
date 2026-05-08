@@ -362,21 +362,34 @@ def collect_gdelt_raw(
     min_interval_sec: float = 5.5,
     max_attempts: int = 8,
     timeout: float = 60.0,
+    collection_stats: dict[str, Any] | None = None,
 ) -> list[dict]:
     """Iterate narratives from the config and concatenate their TimelineVol records."""
 
     cfg = load_narratives_config(narratives_config_path)
     narratives = cfg.get("narratives") or {}
     if not isinstance(narratives, dict):
+        if collection_stats is not None:
+            collection_stats.clear()
+            collection_stats.update(
+                {
+                    "gdelt_narratives_attempted": 0,
+                    "gdelt_narratives_failed": 0,
+                    "gdelt_failure_details": [],
+                }
+            )
         return []
 
     out: list[dict] = []
+    attempted = 0
+    failures: list[dict[str, str]] = []
     for name, spec in narratives.items():
         if not isinstance(spec, dict):
             continue
         query = spec.get("query")
         if not isinstance(query, str) or not query.strip():
             continue
+        attempted += 1
         try:
             rows = fetch_timelinevol(
                 narrative=name,
@@ -389,8 +402,18 @@ def collect_gdelt_raw(
             )
         except Exception as e:
             logger.warning("GDELT narrative %r failed: %s", name, e)
+            failures.append({"narrative": str(name), "error": str(e)[:500]})
             rows = []
         out.extend(rows)
+    if collection_stats is not None:
+        collection_stats.clear()
+        collection_stats.update(
+            {
+                "gdelt_narratives_attempted": attempted,
+                "gdelt_narratives_failed": len(failures),
+                "gdelt_failure_details": failures[:50],
+            }
+        )
     return out
 
 
@@ -411,6 +434,7 @@ def collect_gdelt_raw_window(
 
     st = start_time.astimezone(UTC)
     et = end_time.astimezone(UTC)
+    stats: dict[str, Any] = {}
     rows = collect_gdelt_raw(
         start_date=st.date().isoformat(),
         end_date=et.date().isoformat(),
@@ -418,6 +442,7 @@ def collect_gdelt_raw_window(
         min_interval_sec=min_interval_sec,
         max_attempts=max_attempts,
         timeout=timeout,
+        collection_stats=stats,
     )
     ts = [r["timestamp"] for r in rows if isinstance(r.get("timestamp"), str)]
     meta: dict[str, Any] = {
@@ -428,5 +453,6 @@ def collect_gdelt_raw_window(
         "records": len(rows),
         "min_event_time": min(ts) if ts else None,
         "max_event_time": max(ts) if ts else None,
+        **stats,
     }
     return rows, meta

@@ -377,6 +377,37 @@ def test_build_gold_duplicate_silver_narrative_does_not_explode_cardinality(
     assert distinct_event_times >= 1
 
 
+def test_build_gold_with_empty_narrative_silver_succeeds(monkeypatch, tmp_path) -> None:
+    """Missing/empty GDELT narrative input must not block gold; narrative features null."""
+
+    silver_lookup = {
+        "silver/belief_price_snapshots/date=2026-05-06/data.parquet": _belief_silver(),
+        "silver/crypto_candles_1m/date=2026-05-06/data.parquet": _candles_silver(),
+        "silver/narrative_counts/date=2026-05-06/data.parquet": pl.DataFrame(),
+    }
+    captured: dict[str, pl.DataFrame] = {}
+
+    monkeypatch.setattr(
+        "crypto_belief_pipeline.lake.read.read_parquet_df",
+        lambda key, bucket=None: silver_lookup[key],
+    )
+    monkeypatch.setattr(
+        bg, "write_parquet_df", lambda df, key, bucket=None: captured.setdefault(key, df)
+    )
+
+    tags_csv = tmp_path / "market_tags.csv"
+    tags_csv.write_text(
+        "market_id,asset,narrative,direction,relevance,confidence,notes\n"
+        "pm_btc_reserve_001,BTC,bitcoin_reserve,1,high,0.9,sample\n"
+    )
+
+    bg.build_gold_tables(run_date="2026-05-06", market_tags_path=tags_csv)
+
+    training = captured["gold/training_examples/date=2026-05-06/data.parquet"]
+    assert training.height >= 1
+    assert training.filter(pl.col("narrative_acceleration_1h").is_null()).height == training.height
+
+
 def test_build_gold_live_signals_is_filtered_subset(monkeypatch, tmp_path) -> None:
     silver_lookup = {
         "silver/belief_price_snapshots/date=2026-05-06/data.parquet": _belief_silver(),

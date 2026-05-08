@@ -173,27 +173,65 @@ def test_pipeline_run_rejects_unknown_mode(monkeypatch) -> None:
         )
 
 
-def test_pipeline_run_live_partial_sources_with_gold_fails_fast(monkeypatch) -> None:
-    """Partial `--sources` in live mode must fail when downstream stages are not skipped.
-
-    Otherwise gold/DQ/issues silently fall back to default silver keys and may
-    consume stale data from a previous full run.
-    """
+def test_pipeline_run_live_polymarket_binance_runs_gold_without_gdelt(monkeypatch) -> None:
+    """Polymarket + Binance without GDELT can still build gold (GDELT optional)."""
 
     _silence_typer_echo(monkeypatch)
     monkeypatch.setattr(cli, "_ensure_bucket", lambda: None)
 
-    # Make sure we don't accidentally hit collectors / normalize.
+    monkeypatch.setattr(cli, "run_live_collectors", lambda **_kw: {})
+
+    def fake_run_live_pipeline(*, run_date, sources=None, **_kw):
+        assert sources == {"polymarket", "binance"}
+        return {
+            "silver_belief_price_snapshots": (
+                "silver/belief_price_snapshots/date=2026-05-06/data.parquet"
+            ),
+            "silver_crypto_candles_1m": "silver/crypto_candles_1m/date=2026-05-06/data.parquet",
+            "silver_narrative_counts": "silver/narrative_counts/date=2026-05-06/data.parquet",
+        }
+
+    monkeypatch.setattr(cli, "run_live_pipeline", fake_run_live_pipeline)
+
+    gold_calls: list[dict[str, object]] = []
+
+    def fake_build_gold(**kwargs):
+        gold_calls.append(kwargs)
+        return {"training_examples": "g", "live_signals": "l"}
+
+    monkeypatch.setattr(cli, "build_gold_tables", fake_build_gold)
+
+    cli.pipeline_run(
+        dt="2026-05-06",
+        mode="live",
+        sources="polymarket,binance",
+        skip_gold=False,
+        skip_dq=True,
+        skip_issues=True,
+    )
+
+    assert len(gold_calls) == 1
+    assert gold_calls[0]["belief_key"] == (
+        "silver/belief_price_snapshots/date=2026-05-06/data.parquet"
+    )
+    assert gold_calls[0]["candles_key"] == "silver/crypto_candles_1m/date=2026-05-06/data.parquet"
+    assert gold_calls[0]["narrative_key"] == "silver/narrative_counts/date=2026-05-06/data.parquet"
+
+
+def test_pipeline_run_live_binance_only_still_fails_without_polymarket(monkeypatch) -> None:
+    """Gold still requires Polymarket silver; Binance-only partial runs must fail."""
+
+    _silence_typer_echo(monkeypatch)
+    monkeypatch.setattr(cli, "_ensure_bucket", lambda: None)
+
     def _boom(*_a, **_kw):
         raise AssertionError("downstream call should not happen when guard fires")
 
     monkeypatch.setattr(cli, "run_live_collectors", _boom)
     monkeypatch.setattr(cli, "run_live_pipeline", _boom)
     monkeypatch.setattr(cli, "build_gold_tables", _boom)
-    monkeypatch.setattr(cli, "run_soda_checks", _boom)
-    monkeypatch.setattr(cli, "detect_data_issues", _boom)
 
-    with pytest.raises(cli.typer.BadParameter, match="partial-source"):
+    with pytest.raises(cli.typer.BadParameter, match="Missing required"):
         cli.pipeline_run(
             dt="2026-05-06",
             mode="live",

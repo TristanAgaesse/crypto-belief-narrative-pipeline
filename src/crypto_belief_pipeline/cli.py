@@ -118,9 +118,9 @@ def run_sample(
 
 
 # Sources required to produce a complete gold/DQ/issues run end-to-end.
-# Belief silver requires polymarket, candles requires binance, narrative requires gdelt;
-# all three feed the gold join in `build_gold_tables`.
-_GOLD_REQUIRED_SOURCES = frozenset(_KNOWN_SOURCES)
+# Belief silver requires polymarket; candles require binance. GDELT narrative is optional:
+# gold continues with null/default narrative features when narrative silver is empty.
+_GOLD_REQUIRED_SOURCES = frozenset({"polymarket", "binance"})
 
 
 @pipeline_app.command("run")
@@ -169,12 +169,14 @@ def pipeline_run(
         # Without this guard, downstream stages would silently fall back to
         # default partition keys and may read stale data from a previous run.
         downstream_requested = not (skip_gold and skip_dq and skip_issues)
-        if downstream_requested and src != _GOLD_REQUIRED_SOURCES:
+        if downstream_requested and not _GOLD_REQUIRED_SOURCES.issubset(src):
             missing = sorted(_GOLD_REQUIRED_SOURCES - src)
             raise typer.BadParameter(
-                "Live partial-source runs cannot produce gold/DQ/issues. "
+                "Live partial-source runs cannot produce gold/DQ/issues without "
+                "Polymarket and Binance silver inputs. "
                 f"Missing required sources: {missing}. "
-                "Either re-run with --sources all (or omit --sources), "
+                "GDELT is optional: use e.g. --sources polymarket,binance. "
+                "Either add the missing sources, re-run with --sources all (or omit --sources), "
                 "or pass --skip-gold --skip-dq --skip-issues to limit the run "
                 "to raw + bronze + silver."
             )
@@ -207,8 +209,9 @@ def pipeline_run(
             silver_keys = {
                 "belief_key": normalized["silver_belief_price_snapshots"],
                 "candles_key": normalized["silver_crypto_candles_1m"],
-                "narrative_key": normalized["silver_narrative_counts"],
             }
+            if nk := normalized.get("silver_narrative_counts"):
+                silver_keys["narrative_key"] = nk
 
     if not skip_gold:
         gold_written = build_gold_tables(run_date=run_date, bucket=target_bucket, **silver_keys)

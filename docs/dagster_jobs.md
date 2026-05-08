@@ -54,6 +54,7 @@ Schedules follow the same stem:
 - Polymarket: current-state API only (no historical query params); historical replay fidelity is limited by what staging captured.
 - Binance: best historical compatibility (`startTime`/`endTime` window support).
 - GDELT: day-granularity API query behavior may produce overlap across minute staging runs; canonical hourly layers should treat this as expected and rely on downstream dedupe semantics.
+- **GDELT is non-blocking for gold**: `silver_narrative_counts` may be empty; gold still materializes with null/default narrative features. The domain issue `narrative_counts_empty` is **informational** only. For CLI live runs without GDELT, empty narrative silver is written for that date so downstream reads stay consistent.
 
 ## Design principles
 

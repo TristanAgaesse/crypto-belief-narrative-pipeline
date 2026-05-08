@@ -62,7 +62,9 @@ def test_run_live_pipeline_with_subset_skips_unselected_sources(fake_io) -> None
 
     assert "silver_crypto_candles_1m" in out
     assert "silver_belief_price_snapshots" not in out
-    assert "silver_narrative_counts" not in out
+    # GDELT is optional: when not selected we still write empty narrative silver for this
+    # run_date so downstream gold does not read stale partition data.
+    assert "silver_narrative_counts" in out
     assert out["__sources_processed__"] == "binance"
     # Polymarket / GDELT raw keys must NEVER be read for skipped sources, otherwise
     # we'd silently use stale data from a previous run.
@@ -79,7 +81,10 @@ def test_run_live_pipeline_writes_only_selected_silver(fake_io) -> None:
     writes, _ = fake_io
     rlp.run_live_pipeline(run_date="2026-05-06", sources={"polymarket"})
     written_keys = list(writes.keys())
-    # Polymarket-only run must NOT produce binance/gdelt silver/bronze artifacts.
-    assert all("provider=binance" not in k and "provider=gdelt" not in k for k in written_keys)
+    # Polymarket-only run must NOT produce binance artifacts; optional GDELT still
+    # writes empty bronze/silver narrative for this date.
+    assert all("provider=binance" not in k for k in written_keys)
     assert any("provider=polymarket" in k for k in written_keys)
+    assert any("provider=gdelt" in k for k in written_keys)
     assert any("silver/belief_price_snapshots" in k for k in written_keys)
+    assert any("silver/narrative_counts" in k for k in written_keys)

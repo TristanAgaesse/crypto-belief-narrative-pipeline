@@ -14,8 +14,7 @@ If you're evaluating this submission, run **only these commands**:
 ```bash
 cp .env.example .env
 make setup
-make lint
-make test
+make check
 
 make minio-up
 make ensure-bucket
@@ -41,7 +40,9 @@ Other useful entry points:
 | Goal | Command |
 |---|---|
 | Run unit tests | `make test` |
-| Lint + typecheck | `make lint` |
+| Lint | `make lint` |
+| Typecheck | `make typecheck` |
+| Lint + typecheck + tests (CI parity) | `make check` |
 | Sample pipeline only (no DQ/issues) | `python -m crypto_belief_pipeline.cli pipeline run --mode sample --skip-dq --skip-issues` |
 | Live (real APIs) end-to-end | `python -m crypto_belief_pipeline.cli pipeline run --date $(date +%F) --mode live` |
 | Live, partial sources only (raw + bronze + silver) | `python -m crypto_belief_pipeline.cli pipeline run --date $(date +%F) --mode live --sources binance,polymarket --skip-gold --skip-dq --skip-issues` |
@@ -74,8 +75,7 @@ From the project root:
 ```bash
 cp .env.example .env
 make setup
-make lint
-make test
+make check
 ```
 
 Notes:
@@ -201,12 +201,16 @@ raw keys. This means `--sources binance` will never silently mix today's fresh
 Binance raw with yesterday's stale Polymarket raw. The result includes
 `__sources_processed__` and `__sources_skipped__` for observability.
 
-Gold (and the downstream DQ + issues stages) requires all three sources
-(polymarket + binance + gdelt) to produce a complete training table. To
-guarantee operators never silently consume stale silver from skipped sources,
-`pipeline run --mode live` rejects partial `--sources` unless
-`--skip-gold --skip-dq --skip-issues` are all passed. For full end-to-end
-runs use `--sources all` (the default) or omit `--sources` entirely.
+Gold (and the downstream DQ + issues stages) requires **Polymarket + Binance**
+so belief and candle silver exist. **GDELT is optional**: you can run
+`--sources polymarket,binance` and still produce gold; narrative-derived columns
+are null or defaulted when narrative silver is empty. When GDELT is not
+selected, the live pipeline writes **explicitly empty** narrative silver for
+that `run_date` so gold never reads stale narrative partitions from an earlier
+run. Partial `--sources` that omit Polymarket or Binance still fail fast for
+gold/DQ/issues unless `--skip-gold --skip-dq --skip-issues` are all passed.
+For narrative-inclusive end-to-end runs use `--sources all` (the default) or
+omit `--sources` entirely.
 
 #### DQ over microbatch silver
 
@@ -355,7 +359,7 @@ python -m crypto_belief_pipeline.cli issues detect --date 2026-05-06
 ```
 
 Notes:
-- **GDELT is optional by design**: it is rate-limited and may return zero rows for sparse narratives. The pipeline should surface this as a **data issue** (high severity), not crash.
+- **GDELT is optional by design**: it is rate-limited and may return zero rows for sparse narratives, or be omitted via `--sources`. The pipeline surfaces empty narrative silver as an **informational** data issue (`narrative_counts_empty`) and does **not** block gold, DQ, or issues.
 - **Lakehouse-style DQ**: DuckDB creates **external views** over Parquet via `read_parquet(...)`. Parquet in MinIO/S3 remains the source of truth; table materialization is an opt-in debug/CI fallback.
 
 ### Gold tables

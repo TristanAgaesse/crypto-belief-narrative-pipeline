@@ -103,6 +103,15 @@ def run_live_pipeline(
                 timeline_records=gd_timeline,
             )
         )
+    else:
+        # Explicit empty narrative silver for this run_date so gold does not read stale
+        # partition data when GDELT was intentionally skipped.
+        written.update(
+            normalize_gdelt_to_silver(
+                run_date=run_date,
+                timeline_records=[],
+            )
+        )
 
     written["__sources_processed__"] = ",".join(sorted(selected))
     written["__sources_skipped__"] = ",".join(sorted(_KNOWN_SOURCES - selected))

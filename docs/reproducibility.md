@@ -16,8 +16,7 @@ One-shot run (preferred — runs sample → silver → gold → DQ → issues en
 ```bash
 cp .env.example .env
 make setup
-make lint
-make test
+make check
 
 make minio-up
 make ensure-bucket
@@ -59,7 +58,10 @@ The CLI wraps three things into one command for `pipeline run`:
 2. **Live mode** with `--sources` only normalizes selected sources; unselected
    sources are explicitly skipped (no fallback to default raw keys). This makes
    partial-source runs safe to repeat: re-running with a different `--sources`
-   subset never reuses stale raw input.
+   subset never reuses stale raw input. **GDELT is optional** for gold: with
+   `--sources polymarket,binance`, collectors skip GDELT but the runner still
+   writes empty narrative silver for that date so gold/DQ/issues do not read
+   stale narrative data.
 3. **DQ + data-issues** reads silver via a partition glob (`**/*.parquet`),
    so single-file (`data.parquet`) and Dagster microbatch
    (`hour=HH/batch_id=*.parquet`) layouts both work without configuration.
