@@ -7,6 +7,17 @@ import polars as pl
 
 import crypto_belief_pipeline.dq.duckdb_views as dv
 
+_KALSHI_SILVER_TABLES = (
+    "silver_kalshi_markets",
+    "silver_kalshi_market_snapshots",
+    "silver_kalshi_events",
+    "silver_kalshi_series",
+    "silver_kalshi_trades",
+    "silver_kalshi_orderbook_snapshots",
+    "silver_kalshi_candlesticks",
+    "silver_kalshi_event_repricing_features",
+)
+
 
 class _Settings:
     aws_endpoint_url = ""
@@ -38,6 +49,11 @@ def test_create_duckdb_quality_db_creates_views(tmp_path, monkeypatch) -> None:
         / "data.parquet",
         "silver_narrative_counts": Path(dv.partition_path("silver", "narrative_counts", run_date))
         / "data.parquet",
+        **{
+            name: Path(dv.partition_path("silver", name.removeprefix("silver_"), run_date))
+            / "data.parquet"
+            for name in _KALSHI_SILVER_TABLES
+        },
         "gold_training_examples": Path(dv.partition_path("gold", "training_examples", run_date))
         / "data.parquet",
         "gold_live_signals": Path(dv.partition_path("gold", "live_signals", run_date))
@@ -72,6 +88,10 @@ def test_create_duckdb_quality_db_materialize_tables_optional(tmp_path, monkeypa
     for layer, dataset in [
         ("silver", "crypto_candles_1m"),
         ("silver", "narrative_counts"),
+        *[
+            ("silver", name.removeprefix("silver_"))
+            for name in _KALSHI_SILVER_TABLES
+        ],
         ("gold", "training_examples"),
         ("gold", "live_signals"),
     ]:
@@ -117,6 +137,10 @@ def test_create_duckdb_quality_db_reads_microbatch_silver_shards(tmp_path, monke
     for layer, dataset in [
         ("silver", "crypto_candles_1m"),
         ("silver", "narrative_counts"),
+        *[
+            ("silver", name.removeprefix("silver_"))
+            for name in _KALSHI_SILVER_TABLES
+        ],
     ]:
         q_dir = Path(dv.partition_path(layer, dataset, run_date)) / "hour=12"
         q_dir.mkdir(parents=True, exist_ok=True)
@@ -139,6 +163,53 @@ def test_create_duckdb_quality_db_reads_microbatch_silver_shards(tmp_path, monke
     finally:
         con.close()
 
+
+def test_create_duckdb_quality_db_reads_partitioned_gold_when_partition_key_provided(
+    tmp_path, monkeypatch
+) -> None:
+    _patch_paths(monkeypatch, tmp_path)
+
+    run_date = "2026-05-06"
+    partition_key = "2026-05-06-12:00"
+
+    # Silver (required for view creation)
+    for dataset in (
+        "belief_price_snapshots",
+        "crypto_candles_1m",
+        "narrative_counts",
+        *[name.removeprefix("silver_") for name in _KALSHI_SILVER_TABLES],
+    ):
+        p = Path(dv.partition_path("silver", dataset, run_date)) / "data.parquet"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        pl.DataFrame({"x": [1]}).write_parquet(p)
+
+    # Gold exists ONLY under the partitioned hourly layout.
+    safe = partition_key.replace(":", "-")
+    for dataset in ("training_examples", "live_signals"):
+        gold_p = (
+            Path(dv.partition_path("gold", dataset, run_date))
+            / f"partition={safe}"
+            / "data.parquet"
+        )
+        gold_p.parent.mkdir(parents=True, exist_ok=True)
+        pl.DataFrame({"x": [1]}).write_parquet(gold_p)
+
+    db_path = tmp_path / "quality_partitioned_gold.duckdb"
+    out = dv.create_duckdb_quality_db(
+        run_date,
+        db_path=db_path,
+        materialize_tables=False,
+        partition_key=partition_key,
+    )
+    assert out.exists()
+
+    con = duckdb.connect(str(out))
+    try:
+        row = con.execute("select count(*) from gold_training_examples").fetchone()
+        assert row is not None
+        assert row[0] == 1
+    finally:
+        con.close()
 
 def test_create_duckdb_quality_db_honors_bucket_override(tmp_path, monkeypatch) -> None:
     """Sample mode passes ``bucket=<sample_lake_bucket>`` so silver + gold views
@@ -166,7 +237,12 @@ def test_create_duckdb_quality_db_honors_bucket_override(tmp_path, monkeypatch) 
     run_date = "2026-05-06"
     sample_bucket = "sample-bucket"
 
-    for dataset in ("belief_price_snapshots", "crypto_candles_1m", "narrative_counts"):
+    for dataset in (
+        "belief_price_snapshots",
+        "crypto_candles_1m",
+        "narrative_counts",
+        *[name.removeprefix("silver_") for name in _KALSHI_SILVER_TABLES],
+    ):
         part = tmp_path / sample_bucket / "silver" / dataset / f"date={run_date}"
         part.mkdir(parents=True, exist_ok=True)
         pl.DataFrame({"x": [1]}).write_parquet(part / "data.parquet")
@@ -187,7 +263,7 @@ def test_create_duckdb_quality_db_honors_bucket_override(tmp_path, monkeypatch) 
 
     # Every view must have been created with the override bucket; the live
     # bucket from `_Settings.s3_bucket` must not appear.
-    assert captured_buckets == [sample_bucket] * 5
+    assert captured_buckets == [sample_bucket] * (3 + len(_KALSHI_SILVER_TABLES) + 2)
     assert "dummy" not in captured_buckets
 
     con = duckdb.connect(str(out))
@@ -196,6 +272,7 @@ def test_create_duckdb_quality_db_honors_bucket_override(tmp_path, monkeypatch) 
             "silver_belief_price_snapshots",
             "silver_crypto_candles_1m",
             "silver_narrative_counts",
+            *_KALSHI_SILVER_TABLES,
             "gold_training_examples",
             "gold_live_signals",
         ):

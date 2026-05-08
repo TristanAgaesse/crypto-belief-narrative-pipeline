@@ -29,7 +29,13 @@ def test_scan_processing_gaps_for_partition_reads_only_non_ok(monkeypatch) -> No
     monkeypatch.setattr(aq, "read_processing_watermark", _read)
 
     gaps = aq._scan_processing_gaps_for_partition("2026-05-07-11:00")
-    assert len(reads) == 3
+    assert len(reads) == 4
+    assert {r[0] for r in reads} == {
+        "bronze_polymarket",
+        "bronze_binance",
+        "bronze_gdelt",
+        "bronze_kalshi",
+    }
     assert len(gaps) == 1
     assert gaps[0]["consumer_asset"] == "bronze_binance"
     assert gaps[0]["reason"] == "watermark_status=failed"

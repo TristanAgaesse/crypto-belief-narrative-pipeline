@@ -99,6 +99,28 @@ def test_live_signals_empty_creates_info_issue(monkeypatch) -> None:
     assert any(i["severity"] == "info" and i["issue"] == "live_signals_empty" for i in issues)
 
 
+def test_detect_data_issues_reads_partitioned_gold_when_partition_key_provided(monkeypatch) -> None:
+    """Dagster hourly gold writes under `partition=.../data.parquet`; issue detection must match."""
+
+    captured_gold_keys: list[str] = []
+
+    def silver(prefix: str) -> pl.DataFrame:
+        return pl.DataFrame({"x": [1]})
+
+    def gold(key: str) -> pl.DataFrame:
+        captured_gold_keys.append(key)
+        # Only the partitioned paths should be used in this test.
+        assert "/partition=2026-05-06-12-00/" in key
+        return pl.DataFrame({"future_ret_4h": [0.01]})
+
+    _patch_silver_partition_reader(monkeypatch, silver)
+    _patch_gold_reader(monkeypatch, gold)
+    monkeypatch.setattr(qi, "load_market_tags", lambda path: pl.DataFrame({"market_id": ["m1"]}))
+
+    qi.detect_data_issues("2026-05-06", partition_key="2026-05-06-12:00")
+    assert any("gold/training_examples" in k for k in captured_gold_keys)
+    assert any("gold/live_signals" in k for k in captured_gold_keys)
+
 def test_missing_partition_returns_empty_not_error(monkeypatch) -> None:
     """Expected not-found is converted to an empty frame and surfaced as an issue."""
 

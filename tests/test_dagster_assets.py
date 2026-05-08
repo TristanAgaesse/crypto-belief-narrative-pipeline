@@ -16,10 +16,12 @@ def test_definitions_import_and_contents() -> None:
     assert defs.resolve_job_def("raw_staging__polymarket__5m_job") is not None
     assert defs.resolve_job_def("raw_staging__polymarket_discovery__6h_job") is not None
     assert defs.resolve_job_def("raw_staging__gdelt__1h_job") is not None
+    assert defs.resolve_job_def("raw_staging__kalshi__5m_job") is not None
     assert defs.resolve_job_def("raw_to_silver__binance__1m_job") is not None
     assert defs.resolve_job_def("raw_to_silver__polymarket__5m_job") is not None
     assert defs.resolve_job_def("raw_to_silver__polymarket_discovery__6h_job") is not None
     assert defs.resolve_job_def("raw_to_silver__gdelt__1h_job") is not None
+    assert defs.resolve_job_def("raw_to_silver__kalshi__5m_job") is not None
     assert defs.resolve_job_def("silver_to_gold__signals__5m_job") is not None
     assert defs.resolve_job_def("gold__label_maturation__1h_job") is not None
     assert defs.resolve_job_def("gold_to_quality__hourly_job") is not None
@@ -32,10 +34,12 @@ def test_definitions_import_and_contents() -> None:
         "raw_staging__polymarket__5m_schedule",
         "raw_staging__polymarket_discovery__6h_schedule",
         "raw_staging__gdelt__1h_schedule",
+        "raw_staging__kalshi__5m_schedule",
         "raw_to_silver__binance__1m_schedule",
         "raw_to_silver__polymarket__5m_schedule",
         "raw_to_silver__polymarket_discovery__6h_schedule",
         "raw_to_silver__gdelt__1h_schedule",
+        "raw_to_silver__kalshi__5m_schedule",
         "silver_to_gold__signals__5m_schedule",
         "gold__label_maturation__1h_schedule",
         "gold_to_quality__hourly_schedule",
@@ -50,15 +54,26 @@ def test_definitions_import_and_contents() -> None:
         "raw_polymarket_staging",
         "raw_binance_staging",
         "raw_gdelt_staging",
+        "raw_kalshi_staging",
         "raw_polymarket",
         "raw_binance",
         "raw_gdelt",
+        "raw_kalshi",
         "bronze_polymarket",
         "bronze_binance",
         "bronze_gdelt",
+        "bronze_kalshi",
         "silver_belief_price_snapshots",
         "silver_crypto_candles_1m",
         "silver_narrative_counts",
+        "silver_kalshi_markets",
+        "silver_kalshi_market_snapshots",
+        "silver_kalshi_events",
+        "silver_kalshi_series",
+        "silver_kalshi_trades",
+        "silver_kalshi_orderbook_snapshots",
+        "silver_kalshi_candlesticks",
+        "silver_kalshi_event_repricing_features",
         "gold_training_examples",
         "gold_live_signals",
         "soda_data_quality",
