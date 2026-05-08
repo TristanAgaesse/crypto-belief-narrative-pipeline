@@ -1,5 +1,28 @@
 FROM python:3.11-slim
 
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /opt/dagster/app
+
+COPY pyproject.toml README.md ./
+
+# Install runtime dependencies first so Docker can cache them even when code changes.
+# (This repo doesn't use a lockfile; we parse deps from pyproject.toml.)
+RUN python -m pip install --upgrade pip \
+  && python -c "import tomllib; from pathlib import Path; cfg=tomllib.loads(Path('pyproject.toml').read_text('utf-8')); deps=cfg.get('project',{}).get('dependencies',[]); Path('/tmp/requirements.txt').write_text('\\n'.join(deps)+'\\n','utf-8')" \
+  && pip install -r /tmp/requirements.txt
+
+COPY src ./src
+COPY dq ./dq
+COPY config ./config
+COPY data/sample ./data/sample
+
+# Install the project itself without re-resolving deps.
+RUN pip install --no-deps .
+
 ARG BUILD_DATE
 ARG VCS_REF
 ARG VERSION
@@ -11,22 +34,6 @@ LABEL org.opencontainers.image.title="crypto-belief-narrative-pipeline" \
       org.opencontainers.image.created=$BUILD_DATE \
       org.opencontainers.image.revision=$VCS_REF \
       org.opencontainers.image.version=$VERSION
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1
-
-WORKDIR /opt/dagster/app
-
-COPY pyproject.toml README.md ./
-COPY src ./src
-COPY dq ./dq
-COPY config ./config
-COPY data ./data
-
-RUN python -m pip install --upgrade pip \
-  && pip install .
 
 ENV DAGSTER_HOME=/opt/dagster/dagster_home
 
