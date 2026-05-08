@@ -10,21 +10,12 @@ from botocore.exceptions import ClientError
 from crypto_belief_pipeline.config import get_settings
 from crypto_belief_pipeline.lake.keys import full_s3_key
 from crypto_belief_pipeline.lake.s3 import get_s3_client
+from crypto_belief_pipeline.lake.s3_errors import is_not_found
 
 try:
     import pandas as pd
 except ImportError:  # pragma: no cover
     pd = None  # type: ignore[assignment]
-
-
-_NOT_FOUND_CODES = frozenset({"NoSuchKey", "NoSuchBucket", "404", "NotFound"})
-
-
-def _is_not_found(exc: BaseException) -> bool:
-    if isinstance(exc, ClientError):
-        code = exc.response.get("Error", {}).get("Code")
-        return code in _NOT_FOUND_CODES
-    return False
 
 
 def _to_polars(df: Any) -> pl.DataFrame:
@@ -44,7 +35,7 @@ def write_jsonl_records(records: list[dict], key: str, bucket: str | None = None
     try:
         client.put_object(Bucket=b, Key=full_key, Body=body, ContentType="application/x-ndjson")
     except ClientError as e:
-        if _is_not_found(e):
+        if is_not_found(e):
             # PUT on a missing bucket is a real failure (not "expected absence").
             raise RuntimeError(
                 f"S3 put_object failed (target missing): bucket={b!r} key={full_key!r}"
@@ -68,7 +59,7 @@ def write_parquet_df(df: Any, key: str, bucket: str | None = None) -> None:
             ContentType="application/octet-stream",
         )
     except ClientError as e:
-        if _is_not_found(e):
+        if is_not_found(e):
             raise RuntimeError(
                 f"S3 put_object failed (target missing): bucket={b!r} key={full_key!r}"
             ) from e

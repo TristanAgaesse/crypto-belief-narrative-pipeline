@@ -17,12 +17,15 @@ class Settings(BaseSettings):
     aws_region: str = "us-east-1"
     s3_bucket: str
     s3_prefix: str = ""
+    # Kalshi Trade API (public market data works without credentials).
+    kalshi_trade_api_base: str = "https://external-api.kalshi.com/trade-api/v2"
 
 
 class RuntimeCadence(BaseModel):
     binance_raw_seconds: int = 60
     polymarket_prices_seconds: int = 300
     polymarket_discovery_seconds: int = 21600
+    kalshi_raw_seconds: int = 300
     gdelt_seconds: int = 3600
     silver_seconds: int = 300
     gold_live_seconds: int = 300

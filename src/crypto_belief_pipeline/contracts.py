@@ -193,6 +193,179 @@ GOLD_TRAINING_EXAMPLES = DatasetContract(
     unique_key=("event_time", "market_id", "asset", "narrative"),
 )
 
+SILVER_KALSHI_MARKETS = DatasetContract(
+    name="silver_kalshi_markets",
+    required_columns=frozenset(
+        {
+            "fetched_at",
+            "market_ticker",
+            "relevance_label",
+            "priority",
+            "mapped_assets",
+            "reason_codes",
+        }
+    ),
+    dtypes={
+        "fetched_at": pl.Datetime,
+        "market_ticker": pl.String,
+        "event_ticker": pl.String,
+        "series_ticker": pl.String,
+        "status": pl.String,
+        "market_type": pl.String,
+        "yes_bid": pl.Float64,
+        "yes_ask": pl.Float64,
+        "last_price": pl.Float64,
+        "relevance_label": pl.String,
+        "priority": pl.Int64,
+        "mapped_assets": pl.String,
+        "reason_codes": pl.String,
+    },
+    non_null_columns=frozenset(
+        {"fetched_at", "market_ticker", "relevance_label", "priority"}
+    ),
+    unique_key=("fetched_at", "market_ticker"),
+)
+
+SILVER_KALSHI_MARKET_SNAPSHOTS = DatasetContract(
+    name="silver_kalshi_market_snapshots",
+    required_columns=frozenset(
+        {"fetched_at", "market_ticker", "mid_probability"}
+    ),
+    dtypes={
+        "fetched_at": pl.Datetime,
+        "market_ticker": pl.String,
+        "event_ticker": pl.String,
+        "best_yes_bid": pl.Float64,
+        "best_yes_ask": pl.Float64,
+        "last_price": pl.Float64,
+        "mid_probability": pl.Float64,
+        "spread": pl.Float64,
+    },
+    non_null_columns=frozenset({"fetched_at", "market_ticker"}),
+    unique_key=("fetched_at", "market_ticker"),
+)
+
+SILVER_KALSHI_EVENTS = DatasetContract(
+    name="silver_kalshi_events",
+    required_columns=frozenset(
+        {"fetched_at", "event_ticker", "series_ticker", "title", "category"}
+    ),
+    dtypes={
+        "fetched_at": pl.Datetime,
+        "event_ticker": pl.String,
+        "series_ticker": pl.String,
+        "title": pl.String,
+        "sub_title": pl.String,
+        "category": pl.String,
+    },
+    non_null_columns=frozenset({"fetched_at", "event_ticker"}),
+    unique_key=("fetched_at", "event_ticker"),
+)
+
+SILVER_KALSHI_SERIES = DatasetContract(
+    name="silver_kalshi_series",
+    required_columns=frozenset(
+        {"fetched_at", "series_ticker", "title", "category", "frequency"}
+    ),
+    dtypes={
+        "fetched_at": pl.Datetime,
+        "series_ticker": pl.String,
+        "title": pl.String,
+        "category": pl.String,
+        "frequency": pl.String,
+    },
+    non_null_columns=frozenset({"fetched_at", "series_ticker"}),
+    unique_key=("fetched_at", "series_ticker"),
+)
+
+SILVER_KALSHI_TRADES = DatasetContract(
+    name="silver_kalshi_trades",
+    required_columns=frozenset(
+        {"executed_at", "market_ticker", "taker_side", "yes_price", "no_price"}
+    ),
+    dtypes={
+        "executed_at": pl.Datetime,
+        "market_ticker": pl.String,
+        "trade_id": pl.String,
+        "taker_side": pl.String,
+        "yes_price": pl.Float64,
+        "no_price": pl.Float64,
+        "size_fp": pl.String,
+    },
+    non_null_columns=frozenset({"executed_at", "market_ticker"}),
+    unique_key=("executed_at", "market_ticker", "trade_id"),
+)
+
+SILVER_KALSHI_ORDERBOOK_SNAPSHOTS = DatasetContract(
+    name="silver_kalshi_orderbook_snapshots",
+    required_columns=frozenset({"fetched_at", "market_ticker"}),
+    dtypes={
+        "fetched_at": pl.Datetime,
+        "market_ticker": pl.String,
+        "best_yes_bid": pl.Float64,
+        "best_yes_ask": pl.Float64,
+        "mid_probability": pl.Float64,
+        "spread": pl.Float64,
+        "depth_yes_top": pl.Float64,
+        "depth_no_top": pl.Float64,
+    },
+    non_null_columns=frozenset({"fetched_at", "market_ticker"}),
+    unique_key=("fetched_at", "market_ticker"),
+)
+
+SILVER_KALSHI_CANDLESTICKS = DatasetContract(
+    name="silver_kalshi_candlesticks",
+    required_columns=frozenset(
+        {"market_ticker", "interval", "period_start", "close"}
+    ),
+    dtypes={
+        "market_ticker": pl.String,
+        "interval": pl.String,
+        "period_start": pl.Datetime,
+        "open": pl.Float64,
+        "high": pl.Float64,
+        "low": pl.Float64,
+        "close": pl.Float64,
+        "volume": pl.Float64,
+    },
+    non_null_columns=frozenset({"market_ticker", "interval", "period_start"}),
+    unique_key=("market_ticker", "interval", "period_start"),
+)
+
+SILVER_KALSHI_EVENT_REPRICING_FEATURES = DatasetContract(
+    name="silver_kalshi_event_repricing_features",
+    required_columns=frozenset(
+        {
+            "as_of",
+            "market_ticker",
+            "mid_probability",
+            "delta_5m",
+            "delta_15m",
+            "delta_1h",
+            "delta_6h",
+            "delta_24h",
+        }
+    ),
+    dtypes={
+        "as_of": pl.Datetime,
+        "event_ticker": pl.String,
+        "market_ticker": pl.String,
+        "mapped_assets": pl.String,
+        "mid_probability": pl.Float64,
+        "delta_5m": pl.Float64,
+        "delta_15m": pl.Float64,
+        "delta_1h": pl.Float64,
+        "delta_6h": pl.Float64,
+        "delta_24h": pl.Float64,
+        "velocity_1h": pl.Float64,
+        "acceleration_1h": pl.Float64,
+        "trade_confirm_score": pl.Float64,
+        "liquidity_penalty": pl.Float64,
+    },
+    non_null_columns=frozenset({"as_of", "market_ticker"}),
+    unique_key=("as_of", "market_ticker"),
+)
+
 GOLD_LIVE_SIGNALS = DatasetContract(
     name="gold_live_signals",
     required_columns=frozenset(
@@ -222,6 +395,14 @@ __all__ = [
     "DatasetContract",
     "SILVER_BELIEF_PRICE_SNAPSHOTS",
     "SILVER_CRYPTO_CANDLES_1M",
+    "SILVER_KALSHI_CANDLESTICKS",
+    "SILVER_KALSHI_EVENT_REPRICING_FEATURES",
+    "SILVER_KALSHI_EVENTS",
+    "SILVER_KALSHI_MARKET_SNAPSHOTS",
+    "SILVER_KALSHI_MARKETS",
+    "SILVER_KALSHI_ORDERBOOK_SNAPSHOTS",
+    "SILVER_KALSHI_SERIES",
+    "SILVER_KALSHI_TRADES",
     "SILVER_NARRATIVE_COUNTS",
     "GOLD_TRAINING_EXAMPLES",
     "GOLD_LIVE_SIGNALS",

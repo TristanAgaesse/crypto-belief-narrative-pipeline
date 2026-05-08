@@ -1,0 +1,61 @@
+# Kalshi ingest scoped to the repo alpha hypothesis (docs/alpha_hypothesis.md):
+# belief repricing + short-horizon BTC/ETH/SOL (Binance spot is the price layer; Kalshi is extra belief).
+#
+# Optional hard list: set ``market_tickers: [TICKER1, ...]`` to call GET /markets?tickers=... only
+# (comma-chunked). Leave empty to scan open markets with ``markets_max_pages`` then client-filter.
+
+# Substrings matched case-insensitively on ticker / subtitles / event_ticker (collector + silver).
+keywords:
+  - bitcoin
+  - btc
+  - ethereum
+  - eth
+  - solana
+  - sol
+  - crypto
+
+# Map canonical asset symbols (uppercase) to substrings (aligned to alpha BTC/ETH/SOL).
+asset_aliases:
+  BTC: ["btc", "bitcoin"]
+  ETH: ["eth", "ethereum"]
+  SOL: ["sol", "solana"]
+
+# Restrict raw payload to hypothesis-relevant markets (after optional full /markets scan).
+scope_markets_to_hypothesis: true
+# Drop events not tied to scoped markets (reduces noise vs full /events crawl).
+scope_events_to_markets: true
+# Query /markets/trades per scoped market with window min/max_ts instead of global stream.
+trades_scope_to_filtered_markets: true
+# If no keyword-scoped orderbook candidates, do NOT fall back to top global volume markets.
+orderbook_fallback_to_volume: false
+
+# Optional explicit universe (otherwise leave commented / empty).
+market_tickers: []
+
+# Optional server-side filters for GET /markets when not using ``market_tickers``.
+# markets_series_ticker: ""
+# markets_event_ticker: ""
+
+# Collector behavior (lower = faster, less rate-limit pressure).
+markets_status: open
+markets_page_limit: 200
+markets_max_pages: 25
+markets_tickers_chunk_size: 50
+markets_ticker_chunk_max_pages: 10
+
+events_page_limit: 80
+events_max_pages: 8
+
+trades_max_rows: 2500
+trades_max_pages: 80
+trades_max_markets_to_query: 35
+trades_per_market_row_cap: 500
+trades_per_market_max_pages: 15
+
+max_markets_orderbook: 15
+max_markets_candles: 10
+max_series_fetch: 40
+candle_period_minutes: 15
+
+# Endpoints to skip entirely (e.g. candlesticks during backfill).
+disabled_endpoints: []
