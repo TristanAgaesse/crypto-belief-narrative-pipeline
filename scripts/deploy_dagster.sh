@@ -58,7 +58,7 @@ _compose() {
 _validate_ingestion_job() {
   local job="$1"
   local partition="$2"
-  echo "  -> ${job}"
+  echo "  -> ${job} partition=${partition}"
   _compose run --rm \
     -e "PIPELINE_TAG=${PIPELINE_TAG}" \
     -e "PIPELINE_IMAGE=${PIPELINE_IMAGE}" \
@@ -73,6 +73,26 @@ _validate_ingestion_job() {
       dagster job execute -m crypto_belief_pipeline.orchestration.definitions \
         -j "${JOB_NAME}" \
         --tags "{\"dagster/partition\":\"${PARTITION_TAG}\"}"'
+}
+
+_validation_run_date() {
+  echo "${RUN_DATE:-$(date -u +%F)}"
+}
+
+_validation_hour() {
+  echo "${RUN_HOUR:-$(date -u +%H)}"
+}
+
+_validation_minute() {
+  echo "${RUN_MINUTE:-$(date -u +%M)}"
+}
+
+_validation_hourly_partition() {
+  printf "%s-%s:00" "$(_validation_run_date)" "$(_validation_hour)"
+}
+
+_validation_minute_partition() {
+  printf "%sT%s:%s" "$(_validation_run_date)" "$(_validation_hour)" "$(_validation_minute)"
 }
 
 if [[ "$ROLLBACK" == true ]]; then
@@ -146,10 +166,15 @@ for i in $(seq 1 30); do
 done
 
 if [[ "$VALIDATE" == true ]]; then
-  PARTITION="${RUN_DATE:-$(date -u +%F)}"
-  echo "Smoke validate: executing ingestion jobs for partition ${PARTITION} ..."
+  MINUTE_PARTITION="$(_validation_minute_partition)"
+  HOURLY_PARTITION="$(_validation_hourly_partition)"
+  echo "Smoke validate: executing minute staging jobs for partition ${MINUTE_PARTITION} ..."
+  for job in raw_staging__binance__1m_job raw_staging__polymarket__5m_job raw_staging__gdelt__1h_job; do
+    _validate_ingestion_job "$job" "$MINUTE_PARTITION"
+  done
+  echo "Smoke validate: executing hourly canonical jobs for partition ${HOURLY_PARTITION} ..."
   for job in raw_to_silver__binance__1m_job raw_to_silver__polymarket__5m_job raw_to_silver__gdelt__1h_job; do
-    _validate_ingestion_job "$job" "$PARTITION"
+    _validate_ingestion_job "$job" "$HOURLY_PARTITION"
   done
   echo "Validate complete."
 fi
