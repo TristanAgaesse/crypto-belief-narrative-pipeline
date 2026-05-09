@@ -29,6 +29,21 @@ def test_build_regime_features_emits_risk_on_score() -> None:
     assert feats["risk_on_score"].min() <= feats["risk_on_score"].max()
 
 
+def test_join_fear_greed_asof_empty_events_still_has_risk_on_score() -> None:
+    events = pl.DataFrame()
+    regime = pl.DataFrame(
+        {
+            "source": ["alternative_me"],
+            "date_utc": [datetime(2026, 5, 6, tzinfo=UTC).date()],
+            "value": [50],
+            "value_classification": ["Neutral"],
+            "risk_on_score": [0.1],
+        }
+    )
+    out = join_fear_greed_asof(events, fear_greed_regime=regime)
+    assert "risk_on_score" in out.columns
+
+
 def test_join_fear_greed_asof_adds_null_risk_on_score_when_missing_event_time() -> None:
     events = pl.DataFrame({"market_id": ["m1"], "asset": ["BTC"]})
     regime = pl.DataFrame(
