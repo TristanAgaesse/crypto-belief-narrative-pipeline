@@ -7,6 +7,7 @@ import polars as pl
 
 from crypto_belief_pipeline.contracts import GOLD_LIVE_SIGNALS, GOLD_TRAINING_EXAMPLES
 from crypto_belief_pipeline.features.belief import build_belief_features
+from crypto_belief_pipeline.features.fear_greed import join_fear_greed_asof
 from crypto_belief_pipeline.features.labels import add_directional_labels
 from crypto_belief_pipeline.features.market_tags import (
     DEFAULT_MARKET_TAGS_PATH,
@@ -142,6 +143,7 @@ def build_gold_tables(
     belief_key: str | None = None,
     candles_key: str | None = None,
     narrative_key: str | None = None,
+    fear_greed_regime_key: str | None = None,
     market_tags_path: str | Path = DEFAULT_MARKET_TAGS_PATH,
     *,
     bucket: str | None = None,
@@ -176,6 +178,9 @@ def build_gold_tables(
         narrative_fallback = _partition_parquet_key(
             "silver", "narrative_counts", run_date, partition_key
         )
+        fear_greed_fallback = _partition_parquet_key(
+            "silver", "fear_greed_regime_features", run_date, partition_key
+        )
         belief_silver = _read_partitioned_or_fallback(
             explicit_key=belief_key,
             canonical_key=belief_fallback,
@@ -197,6 +202,14 @@ def build_gold_tables(
             partition_key=partition_key,
             bucket=bucket,
         )
+        try:
+            fear_greed_regime = read_parquet_df(
+                fear_greed_regime_key or fear_greed_fallback, bucket=bucket
+            )
+        except LakeKeyNotFound:
+            fear_greed_regime = read_parquet_partition_df(
+                partition_path("silver", "fear_greed_regime_features", run_date), bucket=bucket
+            )
     else:
         belief_silver = (
             read_parquet_df(belief_key, bucket=bucket)
@@ -217,6 +230,13 @@ def build_gold_tables(
             if narrative_key is not None
             else read_parquet_partition_df(
                 partition_path("silver", "narrative_counts", run_date), bucket=bucket
+            )
+        )
+        fear_greed_regime = (
+            read_parquet_df(fear_greed_regime_key, bucket=bucket)
+            if fear_greed_regime_key is not None
+            else read_parquet_partition_df(
+                partition_path("silver", "fear_greed_regime_features", run_date), bucket=bucket
             )
         )
 
@@ -246,6 +266,7 @@ def build_gold_tables(
 
     joined = belief_features.join(narrative_features, on=["event_time", "narrative"], how="left")
     joined = _join_price_features_asof(joined, price_features)
+    joined = join_fear_greed_asof(joined, fear_greed_regime=fear_greed_regime)
 
     with_labels = add_directional_labels(joined)
     with_pen = add_penalties(with_labels)
