@@ -10,11 +10,14 @@ import polars as pl
 
 from crypto_belief_pipeline.contracts import (
     BRONZE_BINANCE_KLINES,
+    BRONZE_FEAR_GREED,
     BRONZE_GDELT_TIMELINE,
     BRONZE_POLYMARKET_MARKETS,
     BRONZE_POLYMARKET_PRICES,
     SILVER_BELIEF_PRICE_SNAPSHOTS,
     SILVER_CRYPTO_CANDLES_1M,
+    SILVER_FEAR_GREED_DAILY,
+    SILVER_FEAR_GREED_REGIME_FEATURES,
     SILVER_KALSHI_CANDLESTICKS,
     SILVER_KALSHI_EVENT_REPRICING_FEATURES,
     SILVER_KALSHI_EVENTS,
@@ -35,12 +38,14 @@ from crypto_belief_pipeline.orchestration._helpers import (
 )
 from crypto_belief_pipeline.orchestration.assets_raw import (
     raw_binance,
+    raw_fear_greed,
     raw_gdelt,
     raw_kalshi,
     raw_polymarket,
 )
 from crypto_belief_pipeline.orchestration.raw_inputs_from_lake import (
     list_raw_binance_for_partition_window,
+    list_raw_fear_greed_for_partition_window,
     list_raw_gdelt_for_partition_window,
     list_raw_kalshi_for_partition_window,
     list_raw_polymarket_for_partition_window,
@@ -74,6 +79,11 @@ from crypto_belief_pipeline.transform.normalize_kalshi import (
     to_silver_kalshi_orderbook_snapshots,
     to_silver_kalshi_series,
     to_silver_kalshi_trades,
+)
+from crypto_belief_pipeline.transform.normalize_fear_greed import (
+    build_regime_features,
+    normalize_fear_greed_payload_records,
+    to_fear_greed_daily,
 )
 from crypto_belief_pipeline.transform.normalize_polymarket import (
     normalize_markets,
@@ -804,13 +814,172 @@ def silver_narrative_counts(context, bronze_gdelt: dict[str, str]) -> dict[str, 
     return written
 
 
+@asset(
+    partitions_def=hourly_partitions_def,
+    deps=[raw_fear_greed],
+    description="Normalize Alternative.me Fear & Greed raw JSONL into bronze Parquet (typed, source-shaped).",
+)
+def bronze_fear_greed(context) -> dict[str, str]:
+    run_date = resolve_run_date_from_context(context)
+    partition_window = resolve_partition_window_from_context(context)
+    if partition_window is None:
+        raise ValueError("bronze_fear_greed requires an hourly partition window")
+    partition_key = partition_window.partition_key
+    partition_start = partition_window.start
+    partition_end = partition_window.end
+
+    candidates, read_bucket = list_raw_fear_greed_for_partition_window(
+        partition_start=partition_start,
+        partition_end=partition_end,
+        include_canonical_hourly=True,
+    )
+    chosen_keys = [it["raw_fear_greed_payload"] for it in candidates]
+    raw_records = _read_records_for_keys(chosen_keys, bucket=read_bucket)
+    last_batch_id = candidates[-1]["source_batch_id"] if candidates else ""
+    lineage = {
+        "source_batch_id": last_batch_id,
+        "source_window_start": partition_start.isoformat(),
+        "source_window_end": partition_end.isoformat(),
+    }
+
+    # Guardrail: never contaminate normalized outputs with API-declared errors.
+    error_records = [r for r in raw_records if r.get("ok") is False and r.get("error")]
+    if error_records:
+        raise ValueError(f"Fear & Greed raw contains error records: sample={error_records[:1]}")
+
+    bronze_norm = normalize_fear_greed_payload_records(raw_records)
+    BRONZE_FEAR_GREED.validate(bronze_norm)
+    bronze_df = _with_lineage(bronze_norm, lineage)
+
+    key = _canonical_partition_output_key(
+        layer="bronze",
+        dataset="provider=alternative_me_fear_greed",
+        run_date=run_date,
+        partition_key=partition_key,
+    )
+    write_parquet_df(bronze_df, key, bucket=read_bucket)
+
+    written = {
+        "bronze_fear_greed": key,
+        "source_batch_id": last_batch_id,
+        "source_window_start": partition_start.isoformat(),
+        "source_window_end": partition_end.isoformat(),
+        "lake_bucket": read_bucket,
+    }
+    processed_keys = sorted(set(chosen_keys))
+    write_processing_watermark(
+        build_watermark(
+            consumer_asset="bronze_fear_greed",
+            source="alternative_me_fear_greed",
+            partition_key=partition_key,
+            partition_start=partition_start,
+            partition_end=partition_end,
+            processed_input_keys=processed_keys,
+            last_processed_batch_id=last_batch_id or None,
+        ),
+        bucket=read_bucket,
+    )
+    context.add_output_metadata(
+        {
+            "run_date": run_date.isoformat(),
+            "written_keys": list(written.keys()),
+            "rows": int(getattr(bronze_df, "height", 0)),
+            "window_start_utc": partition_start.isoformat(),
+            "window_end_utc": partition_end.isoformat(),
+            "window_closed_open": "[start,end)",
+            "input_microbatches_seen": len(candidates),
+            "input_microbatches_processed": len(candidates),
+            "dup": MetadataValue.json(_dup_metrics(bronze_df, ["source", "date_utc"])),
+        }
+    )
+    return written
+
+
+@asset(
+    partitions_def=hourly_partitions_def,
+    deps=[bronze_fear_greed],
+    description="Build silver fear_greed_daily (daily values) from bronze Fear & Greed.",
+)
+def silver_fear_greed_daily(context, bronze_fear_greed: dict[str, str]) -> dict[str, str]:
+    run_date = resolve_run_date_from_context(context)
+    bucket = bronze_fear_greed.get("lake_bucket")
+    bronze_df = read_parquet_df(bronze_fear_greed["bronze_fear_greed"], bucket=bucket)
+    daily_df = to_fear_greed_daily(bronze_df)
+    daily_df = _with_lineage(daily_df, bronze_fear_greed)
+    SILVER_FEAR_GREED_DAILY.validate(daily_df)
+
+    key = _canonical_partition_output_key(
+        layer="silver",
+        dataset="fear_greed_daily",
+        run_date=run_date,
+        partition_key=context.partition_key if context.has_partition_key else None,
+    )
+    write_parquet_df(daily_df, key, bucket=bucket)
+
+    written = (
+        {"silver_fear_greed_daily": key, "lake_bucket": bucket}
+        if bucket
+        else {"silver_fear_greed_daily": key}
+    )
+    context.add_output_metadata(
+        {
+            "run_date": run_date.isoformat(),
+            "written_keys": list(written.keys()),
+            "rows": int(getattr(daily_df, "height", 0)),
+            "dup": MetadataValue.json(_dup_metrics(daily_df, ["source", "date_utc"])),
+        }
+    )
+    return written
+
+
+@asset(
+    partitions_def=hourly_partitions_def,
+    deps=[silver_fear_greed_daily],
+    description="Build silver fear_greed_regime_features from fear_greed_daily.",
+)
+def silver_fear_greed_regime_features(
+    context, silver_fear_greed_daily: dict[str, str]
+) -> dict[str, str]:
+    run_date = resolve_run_date_from_context(context)
+    bucket = silver_fear_greed_daily.get("lake_bucket")
+    daily_df = read_parquet_df(silver_fear_greed_daily["silver_fear_greed_daily"], bucket=bucket)
+    feats_df = build_regime_features(daily_df)
+    feats_df = _with_lineage(feats_df, silver_fear_greed_daily)
+    SILVER_FEAR_GREED_REGIME_FEATURES.validate(feats_df)
+
+    key = _canonical_partition_output_key(
+        layer="silver",
+        dataset="fear_greed_regime_features",
+        run_date=run_date,
+        partition_key=context.partition_key if context.has_partition_key else None,
+    )
+    write_parquet_df(feats_df, key, bucket=bucket)
+
+    written = (
+        {"silver_fear_greed_regime_features": key, "lake_bucket": bucket}
+        if bucket
+        else {"silver_fear_greed_regime_features": key}
+    )
+    context.add_output_metadata(
+        {
+            "run_date": run_date.isoformat(),
+            "written_keys": list(written.keys()),
+            "rows": int(getattr(feats_df, "height", 0)),
+        }
+    )
+    return written
+
+
 __all__ = [
     "bronze_binance",
+    "bronze_fear_greed",
     "bronze_gdelt",
     "bronze_kalshi",
     "bronze_polymarket",
     "silver_belief_price_snapshots",
     "silver_crypto_candles_1m",
+    "silver_fear_greed_daily",
+    "silver_fear_greed_regime_features",
     "silver_kalshi_candlesticks",
     "silver_kalshi_event_repricing_features",
     "silver_kalshi_events",

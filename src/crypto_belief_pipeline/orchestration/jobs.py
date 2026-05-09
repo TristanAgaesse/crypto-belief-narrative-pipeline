@@ -28,6 +28,11 @@ raw_staging__kalshi__5m_job = define_asset_job(
     selection=AssetSelection.assets("raw_kalshi_staging"),
 )
 
+raw_staging__fear_greed__1h_job = define_asset_job(
+    name="raw_staging__fear_greed__1h_job",
+    selection=AssetSelection.assets("raw_fear_greed_staging"),
+)
+
 # Canonical hourly chains (recomputable overwrite by partition).
 raw_to_silver__binance__1m_job = define_asset_job(
     name="raw_to_silver__binance__1m_job",
@@ -66,6 +71,16 @@ raw_to_silver__kalshi__5m_job = define_asset_job(
         "silver_kalshi_orderbook_snapshots",
         "silver_kalshi_candlesticks",
         "silver_kalshi_event_repricing_features",
+    ),
+)
+
+raw_to_silver__fear_greed__1h_job = define_asset_job(
+    name="raw_to_silver__fear_greed__1h_job",
+    selection=AssetSelection.assets(
+        "raw_fear_greed",
+        "bronze_fear_greed",
+        "silver_fear_greed_daily",
+        "silver_fear_greed_regime_features",
     ),
 )
 
@@ -115,13 +130,17 @@ FULL_STACK_HOURLY_ASSET_NAMES: tuple[str, ...] = (
     "raw_binance",
     "raw_gdelt",
     "raw_kalshi",
+    "raw_fear_greed",
     "bronze_polymarket",
     "bronze_binance",
     "bronze_gdelt",
     "bronze_kalshi",
+    "bronze_fear_greed",
     "silver_belief_price_snapshots",
     "silver_crypto_candles_1m",
     "silver_narrative_counts",
+    "silver_fear_greed_daily",
+    "silver_fear_greed_regime_features",
     "silver_kalshi_markets",
     "silver_kalshi_market_snapshots",
     "silver_kalshi_events",
@@ -150,11 +169,13 @@ ALL_JOBS = [
     raw_staging__polymarket_discovery__6h_job,
     raw_staging__gdelt__1h_job,
     raw_staging__kalshi__5m_job,
+    raw_staging__fear_greed__1h_job,
     raw_to_silver__binance__1m_job,
     raw_to_silver__polymarket__5m_job,
     raw_to_silver__polymarket_discovery__6h_job,
     raw_to_silver__gdelt__1h_job,
     raw_to_silver__kalshi__5m_job,
+    raw_to_silver__fear_greed__1h_job,
     silver_to_gold__signals__5m_job,
     gold__label_maturation__1h_job,
     gold_to_quality__hourly_job,
@@ -173,11 +194,13 @@ __all__ = [
     "gold_to_quality__hourly_job",
     "quality_to_reports__daily_job",
     "raw_staging__binance__1m_job",
+    "raw_staging__fear_greed__1h_job",
     "raw_staging__gdelt__1h_job",
     "raw_staging__kalshi__5m_job",
     "raw_staging__polymarket__5m_job",
     "raw_staging__polymarket_discovery__6h_job",
     "raw_to_silver__binance__1m_job",
+    "raw_to_silver__fear_greed__1h_job",
     "raw_to_silver__gdelt__1h_job",
     "raw_to_silver__kalshi__5m_job",
     "raw_to_silver__polymarket__5m_job",
