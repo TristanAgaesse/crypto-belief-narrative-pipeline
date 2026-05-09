@@ -8,7 +8,7 @@ _FEATURE_JOIN_TOLERANCE = timedelta(days=14)
 
 
 def _ensure_risk_on_score_column(df: pl.DataFrame) -> pl.DataFrame:
-    """Gold contracts require ``risk_on_score``; add a null-typed column if absent."""
+    """Attach ``risk_on_score`` when the regime table or join did not supply it."""
 
     if "risk_on_score" in df.columns:
         return df
@@ -22,10 +22,15 @@ def join_fear_greed_asof(
 
     Fear & Greed is daily-granularity; we align by `date_utc` and join backward
     so events never see future regime values.
+
+    **Contract:** every return path yields a frame that includes ``risk_on_score``
+    (``Float64``, possibly all-null). Gold assumes this column exists once this
+    join has run, including when ``events`` has zero rows (no belief rows for the
+    partition is valid; skipping the join previously dropped the column entirely).
     """
 
     if events.is_empty():
-        return events
+        return _ensure_risk_on_score_column(events)
     if fear_greed_regime.is_empty():
         return _ensure_risk_on_score_column(events)
 
