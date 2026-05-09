@@ -68,9 +68,7 @@ def read_processing_watermark(
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
-        raise ValueError(
-            f"Corrupt processing watermark JSON: bucket={b!r} key={full_key!r}"
-        ) from e
+        raise ValueError(f"Corrupt processing watermark JSON: bucket={b!r} key={full_key!r}") from e
     try:
         return ProcessingWatermark.model_validate(data)
     except ValidationError as e:

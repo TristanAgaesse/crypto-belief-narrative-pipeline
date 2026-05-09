@@ -126,7 +126,10 @@ def test_join_fear_greed_asof_is_causal() -> None:
     regime = pl.DataFrame(
         {
             "source": ["alternative_me", "alternative_me"],
-            "date_utc": [datetime(2026, 5, 6, tzinfo=UTC).date(), datetime(2026, 5, 8, tzinfo=UTC).date()],
+            "date_utc": [
+                datetime(2026, 5, 6, tzinfo=UTC).date(),
+                datetime(2026, 5, 8, tzinfo=UTC).date(),
+            ],
             "risk_on_score": [0.1, 0.9],
             "value": [55, 90],
         }
@@ -135,4 +138,3 @@ def test_join_fear_greed_asof_is_causal() -> None:
     assert joined["risk_on_score"][0] == 0.1
     # Second event is 2026-05-07; it must not see the 2026-05-08 value.
     assert joined["risk_on_score"][1] == 0.1
-

@@ -8,6 +8,8 @@ import pytest
 import crypto_belief_pipeline.features.build_gold as bg
 from crypto_belief_pipeline.lake.read import LakeKeyNotFound
 
+_SILVER_FG_REGIME_2026_05_06 = "silver/fear_greed_regime_features/date=2026-05-06/data.parquet"
+
 
 def _fear_greed_regime_silver() -> pl.DataFrame:
     return pl.DataFrame(
@@ -80,7 +82,7 @@ def test_build_gold_writes_expected_keys(monkeypatch, tmp_path) -> None:
         "silver/belief_price_snapshots/date=2026-05-06/data.parquet": _belief_silver(),
         "silver/crypto_candles_1m/date=2026-05-06/data.parquet": _candles_silver(),
         "silver/narrative_counts/date=2026-05-06/data.parquet": _narrative_silver(),
-        "silver/fear_greed_regime_features/date=2026-05-06/data.parquet": _fear_greed_regime_silver(),
+        _SILVER_FG_REGIME_2026_05_06: _fear_greed_regime_silver(),
     }
 
     def fake_read_parquet_df(key: str, bucket: str | None = None) -> pl.DataFrame:
@@ -114,7 +116,7 @@ def test_build_gold_training_examples_contains_required_columns(monkeypatch, tmp
         "silver/belief_price_snapshots/date=2026-05-06/data.parquet": _belief_silver(),
         "silver/crypto_candles_1m/date=2026-05-06/data.parquet": _candles_silver(),
         "silver/narrative_counts/date=2026-05-06/data.parquet": _narrative_silver(),
-        "silver/fear_greed_regime_features/date=2026-05-06/data.parquet": _fear_greed_regime_silver(),
+        _SILVER_FG_REGIME_2026_05_06: _fear_greed_regime_silver(),
     }
 
     captured: dict[str, pl.DataFrame] = {}
@@ -211,7 +213,7 @@ def test_build_gold_normalizes_mixed_timezone_event_time(monkeypatch, tmp_path) 
         "silver/belief_price_snapshots/date=2026-05-06/data.parquet": belief_aware,
         "silver/crypto_candles_1m/date=2026-05-06/data.parquet": candles_aware,
         "silver/narrative_counts/date=2026-05-06/data.parquet": narrative_naive,
-        "silver/fear_greed_regime_features/date=2026-05-06/data.parquet": _fear_greed_regime_silver(),
+        _SILVER_FG_REGIME_2026_05_06: _fear_greed_regime_silver(),
     }
     captured: dict[str, pl.DataFrame] = {}
 
@@ -293,7 +295,7 @@ def test_build_gold_asof_joins_price_features_for_slightly_late_events(
         "silver/belief_price_snapshots/date=2026-05-06/data.parquet": belief,
         "silver/crypto_candles_1m/date=2026-05-06/data.parquet": candles,
         "silver/narrative_counts/date=2026-05-06/data.parquet": _narrative_silver(),
-        "silver/fear_greed_regime_features/date=2026-05-06/data.parquet": _fear_greed_regime_silver(),
+        _SILVER_FG_REGIME_2026_05_06: _fear_greed_regime_silver(),
     }
     captured: dict[str, pl.DataFrame] = {}
 
@@ -368,7 +370,7 @@ def test_build_gold_duplicate_silver_narrative_does_not_explode_cardinality(
         "silver/belief_price_snapshots/date=2026-05-06/data.parquet": belief,
         "silver/crypto_candles_1m/date=2026-05-06/data.parquet": candles,
         "silver/narrative_counts/date=2026-05-06/data.parquet": narrative,
-        "silver/fear_greed_regime_features/date=2026-05-06/data.parquet": _fear_greed_regime_silver(),
+        _SILVER_FG_REGIME_2026_05_06: _fear_greed_regime_silver(),
     }
     captured: dict[str, pl.DataFrame] = {}
 
@@ -404,7 +406,7 @@ def test_build_gold_with_empty_narrative_silver_succeeds(monkeypatch, tmp_path) 
         "silver/belief_price_snapshots/date=2026-05-06/data.parquet": _belief_silver(),
         "silver/crypto_candles_1m/date=2026-05-06/data.parquet": _candles_silver(),
         "silver/narrative_counts/date=2026-05-06/data.parquet": pl.DataFrame(),
-        "silver/fear_greed_regime_features/date=2026-05-06/data.parquet": _fear_greed_regime_silver(),
+        _SILVER_FG_REGIME_2026_05_06: _fear_greed_regime_silver(),
     }
     captured: dict[str, pl.DataFrame] = {}
 
@@ -434,7 +436,7 @@ def test_build_gold_live_signals_is_filtered_subset(monkeypatch, tmp_path) -> No
         "silver/belief_price_snapshots/date=2026-05-06/data.parquet": _belief_silver(),
         "silver/crypto_candles_1m/date=2026-05-06/data.parquet": _candles_silver(),
         "silver/narrative_counts/date=2026-05-06/data.parquet": _narrative_silver(),
-        "silver/fear_greed_regime_features/date=2026-05-06/data.parquet": _fear_greed_regime_silver(),
+        _SILVER_FG_REGIME_2026_05_06: _fear_greed_regime_silver(),
     }
     captured: dict[str, pl.DataFrame] = {}
 
@@ -671,9 +673,7 @@ def test_build_gold_hourly_partition_missing_narrative_silver_entirely_succeeds(
     assert training.filter(pl.col("narrative_acceleration_1h").is_null()).height == training.height
 
 
-def test_build_gold_partitioned_fallback_requires_timestamp_column(
-    monkeypatch, tmp_path
-) -> None:
+def test_build_gold_partitioned_fallback_requires_timestamp_column(monkeypatch, tmp_path) -> None:
     missing_partition_keys = {
         "silver/belief_price_snapshots/date=2026-05-08/partition=2026-05-08-23-00/data.parquet",
         "silver/crypto_candles_1m/date=2026-05-08/partition=2026-05-08-23-00/data.parquet",

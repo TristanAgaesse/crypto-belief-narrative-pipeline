@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import polars as pl
@@ -36,11 +36,13 @@ def _parse_unix_ts_utc(value: Any) -> datetime | None:
     return datetime.fromtimestamp(ts, tz=UTC).replace(microsecond=0)
 
 
-def normalize_fear_greed_payload_records(raw_records: list[dict]) -> pl.DataFrame:
+def normalize_fear_greed_payload_records(raw_records: list[Any]) -> pl.DataFrame:
     """Normalize raw Fear & Greed staging/canonical records into typed bronze rows.
 
-    Expects raw records shaped like `assets_raw.raw_fear_greed_*` writes:
-      { source, fetched_at, ok, error, payload: { data: [ { value, value_classification, timestamp, ...}, ... ] } }
+    Expects raw records shaped like `assets_raw.raw_fear_greed_*` writes::
+
+      { source, fetched_at, ok, error,
+        payload: { data: [ { value, value_classification, timestamp, ...}, ... ] } }
     """
 
     if not raw_records:
@@ -75,7 +77,9 @@ def normalize_fear_greed_payload_records(raw_records: list[dict]) -> pl.DataFram
         fetched_dt: datetime | None = None
         if isinstance(fetched_at, str) and fetched_at.strip():
             try:
-                fetched_dt = datetime.fromisoformat(fetched_at.replace("Z", "+00:00")).astimezone(UTC)
+                fetched_dt = datetime.fromisoformat(fetched_at.replace("Z", "+00:00")).astimezone(
+                    UTC
+                )
             except ValueError:
                 fetched_dt = None
 
@@ -212,10 +216,18 @@ def build_regime_features(daily: pl.DataFrame) -> pl.DataFrame:
     df = daily.sort(["source", "date_utc"]).with_columns(pl.col("value").cast(pl.Float64))
 
     def _rolling_mean(n: int) -> pl.Expr:
-        return pl.col("value").rolling_mean(window_size=n, min_periods=max(1, n // 2)).over("source")
+        return (
+            pl.col("value")
+            .rolling_mean(window_size=n, min_periods=max(1, n // 2))  # type: ignore[call-arg]
+            .over("source")
+        )
 
     def _rolling_std(n: int) -> pl.Expr:
-        return pl.col("value").rolling_std(window_size=n, min_periods=max(2, n // 2)).over("source")
+        return (
+            pl.col("value")
+            .rolling_std(window_size=n, min_periods=max(2, n // 2))  # type: ignore[call-arg]
+            .over("source")
+        )
 
     feats = df.with_columns(
         (pl.col("value") - pl.col("value").shift(1)).over("source").alias("chg_1d"),
@@ -242,7 +254,8 @@ def build_regime_features(daily: pl.DataFrame) -> pl.DataFrame:
 
     # Simple monotone score: map index range [0,100] to [-1, +1]
     feats = feats.with_columns(((pl.col("value") / 50.0) - 1.0).alias("risk_on_score"))
-    feats = feats.with_columns(pl.lit(datetime.now(UTC).replace(microsecond=0)).alias("processed_at"))
+    processed = pl.lit(datetime.now(UTC).replace(microsecond=0))
+    feats = feats.with_columns(processed.alias("processed_at"))
 
     return feats.select(
         "source",
@@ -271,4 +284,3 @@ __all__ = [
     "normalize_fear_greed_payload_records",
     "to_fear_greed_daily",
 ]
-

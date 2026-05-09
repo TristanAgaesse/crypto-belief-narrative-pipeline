@@ -97,4 +97,3 @@ def fetch_fear_and_greed(
 
 
 __all__ = ["FearGreedFetchResult", "fetch_fear_and_greed"]
-
