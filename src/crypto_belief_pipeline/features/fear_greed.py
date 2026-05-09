@@ -15,9 +15,7 @@ def _ensure_risk_on_score_column(df: pl.DataFrame) -> pl.DataFrame:
     return df.with_columns(pl.lit(None, dtype=pl.Float64).alias("risk_on_score"))
 
 
-def join_fear_greed_asof(
-    events: pl.DataFrame, *, fear_greed_regime: pl.DataFrame
-) -> pl.DataFrame:
+def join_fear_greed_asof(events: pl.DataFrame, *, fear_greed_regime: pl.DataFrame) -> pl.DataFrame:
     """Causal as-of join from event_time to last known Fear & Greed regime row.
 
     Fear & Greed is daily-granularity; we align by `date_utc` and join backward
@@ -65,4 +63,3 @@ def join_fear_greed_asof(
 
 
 __all__ = ["join_fear_greed_asof"]
-

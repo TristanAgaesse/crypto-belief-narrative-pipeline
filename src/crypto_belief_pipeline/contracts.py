@@ -495,17 +495,13 @@ SILVER_KALSHI_MARKETS = DatasetContract(
         "mapped_assets": pl.String,
         "reason_codes": pl.String,
     },
-    non_null_columns=frozenset(
-        {"fetched_at", "market_ticker", "relevance_label", "priority"}
-    ),
+    non_null_columns=frozenset({"fetched_at", "market_ticker", "relevance_label", "priority"}),
     unique_key=("fetched_at", "market_ticker"),
 )
 
 SILVER_KALSHI_MARKET_SNAPSHOTS = DatasetContract(
     name="silver_kalshi_market_snapshots",
-    required_columns=frozenset(
-        {"fetched_at", "market_ticker", "mid_probability"}
-    ),
+    required_columns=frozenset({"fetched_at", "market_ticker", "mid_probability"}),
     dtypes={
         "fetched_at": pl.Datetime,
         "market_ticker": pl.String,
@@ -539,9 +535,7 @@ SILVER_KALSHI_EVENTS = DatasetContract(
 
 SILVER_KALSHI_SERIES = DatasetContract(
     name="silver_kalshi_series",
-    required_columns=frozenset(
-        {"fetched_at", "series_ticker", "title", "category", "frequency"}
-    ),
+    required_columns=frozenset({"fetched_at", "series_ticker", "title", "category", "frequency"}),
     dtypes={
         "fetched_at": pl.Datetime,
         "series_ticker": pl.String,
@@ -590,9 +584,7 @@ SILVER_KALSHI_ORDERBOOK_SNAPSHOTS = DatasetContract(
 
 SILVER_KALSHI_CANDLESTICKS = DatasetContract(
     name="silver_kalshi_candlesticks",
-    required_columns=frozenset(
-        {"market_ticker", "interval", "period_start", "close"}
-    ),
+    required_columns=frozenset({"market_ticker", "interval", "period_start", "close"}),
     dtypes={
         "market_ticker": pl.String,
         "interval": pl.String,

@@ -1,0 +1,4 @@
+checks for silver_kalshi_trades:
+  - missing_count(executed_at) = 0
+  - missing_count(market_ticker) = 0
+  - duplicate_count(executed_at, market_ticker, trade_id) = 0

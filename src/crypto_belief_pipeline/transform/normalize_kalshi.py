@@ -28,6 +28,20 @@ def _ingested_at() -> pl.Expr:
     return pl.lit(datetime.now(UTC).replace(microsecond=0)).alias("ingested_at")
 
 
+def _kalshi_envelope_body(r: dict[str, Any]) -> dict[str, Any]:
+    inner = r.get("data")
+    if isinstance(inner, dict):
+        return inner
+    return r
+
+
+def _kalshi_envelope_data_dict(r: dict[str, Any]) -> dict[str, Any]:
+    inner = r.get("data")
+    if isinstance(inner, dict):
+        return inner
+    return {}
+
+
 def _raw_json_from_envelopes(records: list[dict]) -> list[str]:
     return [json.dumps(r, ensure_ascii=False) for r in records]
 
@@ -62,7 +76,11 @@ def classify_kalshi_market_priority(
     """Return relevance_label, priority (int), mapped_assets (list), reason_codes (list)."""
 
     keywords = cfg.get("keywords") or []
-    needles = [str(k).strip().lower() for k in keywords if str(k).strip()] if isinstance(keywords, list) else []
+    needles = (
+        [str(k).strip().lower() for k in keywords if str(k).strip()]
+        if isinstance(keywords, list)
+        else []
+    )
 
     hay_parts: list[str] = []
     for key in ("ticker", "yes_sub_title", "no_sub_title", "title", "subtitle", "event_ticker"):
@@ -139,7 +157,7 @@ def normalize_kalshi_markets(records: list[dict]) -> pl.DataFrame:
 
     slim: list[dict[str, Any]] = []
     for r in records:
-        data = r.get("data") if isinstance(r.get("data"), dict) else r
+        data = _kalshi_envelope_body(r)
         slim.append(
             {
                 "market_ticker": data.get("ticker"),
@@ -180,7 +198,9 @@ def normalize_kalshi_markets(records: list[dict]) -> pl.DataFrame:
         pl.col("open_interest_fp").cast(pl.String),
         pl.Series("raw_json", _raw_json_from_envelopes(records)),
     ).with_columns(_ingested_at())
-    bronze = bronze.sort(["market_ticker", "fetched_at"]).unique(subset=["market_ticker"], keep="last")
+    bronze = bronze.sort(["market_ticker", "fetched_at"]).unique(
+        subset=["market_ticker"], keep="last"
+    )
     return bronze
 
 
@@ -201,7 +221,7 @@ def normalize_kalshi_events(records: list[dict]) -> pl.DataFrame:
         )
     slim = []
     for r in records:
-        d = r.get("data") if isinstance(r.get("data"), dict) else r
+        d = _kalshi_envelope_body(r)
         slim.append(
             {
                 "event_ticker": d.get("event_ticker"),
@@ -224,7 +244,9 @@ def normalize_kalshi_events(records: list[dict]) -> pl.DataFrame:
         _parse_utc_any("snapshot_time").alias("snapshot_time"),
         pl.Series("raw_json", _raw_json_from_envelopes(records)),
     ).with_columns(_ingested_at())
-    bronze = bronze.sort(["event_ticker", "fetched_at"]).unique(subset=["event_ticker"], keep="last")
+    bronze = bronze.sort(["event_ticker", "fetched_at"]).unique(
+        subset=["event_ticker"], keep="last"
+    )
     return bronze
 
 
@@ -244,7 +266,7 @@ def normalize_kalshi_series(records: list[dict]) -> pl.DataFrame:
         )
     slim = []
     for r in records:
-        d = r.get("data") if isinstance(r.get("data"), dict) else r
+        d = _kalshi_envelope_body(r)
         slim.append(
             {
                 "series_ticker": d.get("ticker"),
@@ -265,7 +287,9 @@ def normalize_kalshi_series(records: list[dict]) -> pl.DataFrame:
         _parse_utc_any("snapshot_time").alias("snapshot_time"),
         pl.Series("raw_json", _raw_json_from_envelopes(records)),
     ).with_columns(_ingested_at())
-    bronze = bronze.sort(["series_ticker", "fetched_at"]).unique(subset=["series_ticker"], keep="last")
+    bronze = bronze.sort(["series_ticker", "fetched_at"]).unique(
+        subset=["series_ticker"], keep="last"
+    )
     return bronze
 
 
@@ -287,7 +311,7 @@ def normalize_kalshi_trades(records: list[dict]) -> pl.DataFrame:
         )
     slim = []
     for r in records:
-        d = r.get("data") if isinstance(r.get("data"), dict) else r
+        d = _kalshi_envelope_body(r)
         tid = d.get("trade_id")
         mkt = d.get("ticker")
         created = d.get("created_time")
@@ -295,9 +319,7 @@ def normalize_kalshi_trades(records: list[dict]) -> pl.DataFrame:
         no_p = d.get("no_price_dollars")
         cnt = d.get("count_fp")
         tid_s = str(tid) if tid is not None else ""
-        fallback = hashlib.sha256(
-            f"{mkt}|{created}|{yes_p}|{no_p}|{cnt}".encode()
-        ).hexdigest()[:32]
+        fallback = hashlib.sha256(f"{mkt}|{created}|{yes_p}|{no_p}|{cnt}".encode()).hexdigest()[:32]
         dedupe = tid_s or fallback
         slim.append(
             {
@@ -350,10 +372,12 @@ def normalize_kalshi_orderbooks(records: list[dict]) -> pl.DataFrame:
         )
     rows: list[dict[str, Any]] = []
     for r in records:
-        outer = r.get("data") if isinstance(r.get("data"), dict) else {}
+        outer = _kalshi_envelope_data_dict(r)
         m_tk = outer.get("market_ticker")
-        ob = outer.get("orderbook") if isinstance(outer.get("orderbook"), dict) else {}
-        ob_fp = ob.get("orderbook_fp") if isinstance(ob.get("orderbook_fp"), dict) else {}
+        raw_ob = outer.get("orderbook")
+        ob: dict[str, Any] = raw_ob if isinstance(raw_ob, dict) else {}
+        raw_fp = ob.get("orderbook_fp")
+        ob_fp: dict[str, Any] = raw_fp if isinstance(raw_fp, dict) else {}
         yes_levels = ob_fp.get("yes_dollars") or []
         no_levels = ob_fp.get("no_dollars") or []
         best_yes_bid = None
@@ -407,10 +431,15 @@ def normalize_kalshi_orderbooks(records: list[dict]) -> pl.DataFrame:
         pl.col("depth_no_top").cast(pl.Float64),
         pl.Series("raw_json", _raw_json_from_envelopes(records)),
     ).with_columns(_ingested_at())
-    key = (pl.col("market_ticker").cast(pl.String) + "|" + pl.col("fetched_at").cast(pl.String)).hash()
-    bronze = bronze.with_columns(key.alias("_row_key")).sort(["_row_key"]).unique(
-        subset=["market_ticker", "fetched_at"], keep="last"
-    ).drop("_row_key")
+    mt = pl.col("market_ticker").cast(pl.String)
+    fa = pl.col("fetched_at").cast(pl.String)
+    key = (mt + "|" + fa).hash()
+    bronze = (
+        bronze.with_columns(key.alias("_row_key"))
+        .sort(["_row_key"])
+        .unique(subset=["market_ticker", "fetched_at"], keep="last")
+        .drop("_row_key")
+    )
     return bronze
 
 
@@ -432,10 +461,11 @@ def normalize_kalshi_candlesticks(records: list[dict]) -> pl.DataFrame:
         )
     rows: list[dict[str, Any]] = []
     for r in records:
-        outer = r.get("data") if isinstance(r.get("data"), dict) else {}
+        outer = _kalshi_envelope_data_dict(r)
         m_tk = outer.get("market_ticker")
         interval = str(outer.get("period_minutes") or "")
-        c = outer.get("candle") if isinstance(outer.get("candle"), dict) else {}
+        raw_c = outer.get("candle")
+        c: dict[str, Any] = raw_c if isinstance(raw_c, dict) else {}
         end_period_ts = c.get("end_period_ts") or c.get("start_period_ts")
         rows.append(
             {
@@ -462,11 +492,7 @@ def normalize_kalshi_candlesticks(records: list[dict]) -> pl.DataFrame:
     )
     bronze = bronze.with_columns(
         pl.when(pl.col("_end_ts").is_not_null())
-        .then(
-            (pl.col("_end_ts") * 1_000_000)
-            .cast(pl.Datetime("us"))
-            .dt.replace_time_zone("UTC")
-        )
+        .then((pl.col("_end_ts") * 1_000_000).cast(pl.Datetime("us")).dt.replace_time_zone("UTC"))
         .otherwise(None)
         .alias("period_start")
     ).drop("_end_ts")
@@ -672,9 +698,7 @@ def to_silver_kalshi_trades(trades_bronze: pl.DataFrame) -> pl.DataFrame:
     return trades_bronze.select(
         pl.col("executed_at"),
         pl.col("market_ticker"),
-        pl.coalesce(pl.col("trade_id"), pl.col("dedupe_key"))
-        .cast(pl.String)
-        .alias("trade_id"),
+        pl.coalesce(pl.col("trade_id"), pl.col("dedupe_key")).cast(pl.String).alias("trade_id"),
         pl.col("taker_side"),
         pl.col("yes_price"),
         pl.col("no_price"),

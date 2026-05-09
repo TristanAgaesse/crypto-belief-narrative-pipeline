@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime, date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import polars as pl
@@ -22,7 +22,11 @@ from crypto_belief_pipeline.features.scoring import (
     add_underreaction_score,
 )
 from crypto_belief_pipeline.lake.paths import partition_path
-from crypto_belief_pipeline.lake.read import LakeKeyNotFound, read_parquet_df, read_parquet_partition_df
+from crypto_belief_pipeline.lake.read import (
+    LakeKeyNotFound,
+    read_parquet_df,
+    read_parquet_partition_df,
+)
 from crypto_belief_pipeline.lake.write import write_parquet_df
 
 _PRICE_FEATURE_JOIN_TOLERANCE = timedelta(minutes=2)
@@ -113,8 +117,9 @@ def _partition_scoped_fallback_df(
     if df.width == 0:
         if allow_empty_when_missing:
             return pl.DataFrame()
+        slug = _safe_partition_slug(partition_key)
         raise LakeKeyNotFound(
-            f"lake key not found: {partition_prefix}/partition={_safe_partition_slug(partition_key)}/data.parquet"
+            f"lake key not found: {partition_prefix}/partition={slug}/data.parquet"
         )
     if "timestamp" not in df.columns:
         raise ValueError(
@@ -122,8 +127,7 @@ def _partition_scoped_fallback_df(
         )
     window_start, window_end = _partition_window_from_key(partition_key)
     return df.filter(
-        (pl.col("timestamp") >= pl.lit(window_start))
-        & (pl.col("timestamp") < pl.lit(window_end))
+        (pl.col("timestamp") >= pl.lit(window_start)) & (pl.col("timestamp") < pl.lit(window_end))
     )
 
 

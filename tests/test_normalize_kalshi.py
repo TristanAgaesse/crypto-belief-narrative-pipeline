@@ -29,7 +29,12 @@ def test_orderbook_mid_and_spread() -> None:
             "ingest_batch_id": "t1",
             "data": {
                 "market_ticker": "M1",
-                "orderbook": {"orderbook_fp": {"yes_dollars": [["0.60", "10"]], "no_dollars": [["0.30", "5"]]}},
+                "orderbook": {
+                    "orderbook_fp": {
+                        "yes_dollars": [["0.60", "10"]],
+                        "no_dollars": [["0.30", "5"]],
+                    }
+                },
             },
         }
     ]

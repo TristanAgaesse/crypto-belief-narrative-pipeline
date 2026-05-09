@@ -16,4 +16,3 @@ def pytest_configure() -> None:
     src = root / "src"
     if src.exists():
         sys.path.insert(0, str(src))
-

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import subprocess
+import time
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -18,12 +20,18 @@ from crypto_belief_pipeline.lake.compaction import (
     compact_hourly_microbatches,
 )
 from crypto_belief_pipeline.lake.paths import partition_path
+from crypto_belief_pipeline.lake.read import LakeKeyNotFound, read_parquet_row_count
 from crypto_belief_pipeline.lake.s3 import ensure_bucket_exists
 from crypto_belief_pipeline.quality.issues import detect_data_issues, write_data_issues_reports
 from crypto_belief_pipeline.reports.index_md import (
     load_issues_count_from_disk,
     load_soda_passed_from_disk,
     render_reports_index_md,
+)
+from crypto_belief_pipeline.reports.run_summary import (
+    build_pipeline_run_summary,
+    summarize_issues_by_severity,
+    write_pipeline_run_summary,
 )
 from crypto_belief_pipeline.transform.run_live_pipeline import run_live_pipeline
 from crypto_belief_pipeline.transform.run_sample_pipeline import run_sample_pipeline
@@ -64,6 +72,20 @@ def _run_date(dt: str | None) -> str:
 def _ensure_bucket() -> None:
     s = get_settings()
     ensure_bucket_exists(s.s3_bucket, settings=s)
+
+
+def _row_counts_for_parquet_keys(
+    keys: dict[str, str], *, bucket: str | None
+) -> dict[str, int | None]:
+    """Best-effort row counts for written Parquet objects (gold, etc.)."""
+
+    out: dict[str, int | None] = {}
+    for name, key in keys.items():
+        try:
+            out[name] = read_parquet_row_count(key, bucket=bucket)
+        except (LakeKeyNotFound, OSError, ValueError):
+            out[name] = None
+    return out
 
 
 def _ensure_sample_bucket() -> str:
@@ -145,16 +167,26 @@ def pipeline_run(
     if mode not in {"live", "sample"}:
         raise typer.BadParameter("mode must be one of: live, sample")
 
+    t0 = time.monotonic()
+    started_at = datetime.now(tz=UTC).isoformat()
+    stages: dict[str, Any] = {}
+    warnings: list[str] = []
+
     silver_keys: dict[str, str] = {}
     target_bucket: str | None = None
 
     if mode == "sample":
         # Sample mode never writes to the live bucket; bucket isolation lives at
-        # the bucket level (not as a key prefix). We still run the live-bucket
-        # check so operators see early if both buckets are misconfigured.
+        # the bucket level (not as a key prefix). Still verify the configured
+        # live bucket exists so operators catch misconfiguration early.
+        _ensure_bucket()
         target_bucket = _ensure_sample_bucket()
         written = run_sample_pipeline(run_date=run_date)
         typer.echo(json.dumps(written, indent=2, sort_keys=True))
+        stages["sample_raw_to_silver"] = {
+            "sample_bucket": written.get("sample_bucket"),
+            "keys_written": {k: v for k, v in written.items() if k != "sample_bucket"},
+        }
         # Silver lives in the sample bucket with the canonical key layout, so we
         # only need to forward the keys; the bucket override is what routes I/O.
         silver_keys = {
@@ -189,6 +221,7 @@ def pipeline_run(
             collect_gdelt=("gdelt" in src),
         )
         typer.echo(json.dumps(raw_written, indent=2, sort_keys=True))
+        stages["live_collectors"] = dict(raw_written)
 
         # Normalize selected sources only. Unselected sources are explicitly skipped so we
         # never fall back to stale default raw keys from a previous run.
@@ -201,6 +234,12 @@ def pipeline_run(
             raw_gdelt_timeline_key=raw_written.get("raw_gdelt_timeline"),
         )
         typer.echo(json.dumps(normalized, indent=2, sort_keys=True))
+        stages["live_normalize"] = {
+            k: v for k, v in normalized.items() if not str(k).startswith("__")
+        }
+        stages["live_sources_meta"] = {
+            k: v for k, v in normalized.items() if str(k).startswith("__")
+        }
 
         # Thread silver keys explicitly into downstream stages so they never
         # reach back to default partition keys (which is what introduced the
@@ -216,15 +255,50 @@ def pipeline_run(
     if not skip_gold:
         gold_written = build_gold_tables(run_date=run_date, bucket=target_bucket, **silver_keys)
         typer.echo(json.dumps(gold_written, indent=2, sort_keys=True))
+        stages["gold"] = {
+            "keys": gold_written,
+            "row_counts": _row_counts_for_parquet_keys(gold_written, bucket=target_bucket),
+        }
+    else:
+        stages["gold"] = {"skipped": True}
 
     if not skip_dq:
         summary = run_soda_checks(run_date=run_date, bucket=target_bucket)
         typer.echo(json.dumps(summary, indent=2, sort_keys=True))
+        stages["dq_soda"] = summary
+        if not summary.get("passed", False):
+            warnings.append("Soda data-quality checks reported failures or errors.")
+    else:
+        stages["dq_soda"] = {"skipped": True}
 
     if not skip_issues:
         issues = detect_data_issues(run_date=run_date, bucket=target_bucket)
         paths = write_data_issues_reports(issues)
         typer.echo(json.dumps({"issues": len(issues), "paths": paths}, indent=2, sort_keys=True))
+        stages["issues"] = {
+            "count": len(issues),
+            "by_severity": summarize_issues_by_severity(issues),
+            "report_paths": paths,
+        }
+        crit = stages["issues"]["by_severity"].get("critical", 0)
+        if crit:
+            warnings.append(f"Domain issue detector reported {crit} critical issue(s).")
+    else:
+        stages["issues"] = {"skipped": True}
+
+    duration_s = time.monotonic() - t0
+    finished_at = datetime.now(tz=UTC).isoformat()
+    run_summary = build_pipeline_run_summary(
+        run_date=run_date,
+        mode=mode,
+        duration_seconds=duration_s,
+        started_at=started_at,
+        finished_at=finished_at,
+        stages=stages,
+        warnings=warnings,
+    )
+    rs_paths = write_pipeline_run_summary(run_summary)
+    typer.echo(json.dumps({"run_summary": rs_paths}, indent=2, sort_keys=True))
 
 
 @app.command("smoke-test-apis")

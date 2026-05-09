@@ -54,6 +54,10 @@ def render_reports_index_md(
     lines: list[str] = [
         f"# Reports ({run_date})",
         "",
+        "## Pipeline run summary",
+        "- JSON: `reports/run_summary.json`",
+        "- Markdown: `reports/run_summary.md`",
+        "",
         "## Data quality (Soda)",
         f"- Output: `{output_txt}`",
         f"- Summary: `{summary_json}`",

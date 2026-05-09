@@ -1,0 +1,4 @@
+checks for silver_kalshi_series:
+  - missing_count(fetched_at) = 0
+  - missing_count(series_ticker) = 0
+  - duplicate_count(fetched_at, series_ticker) = 0

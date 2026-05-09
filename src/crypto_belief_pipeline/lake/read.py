@@ -5,6 +5,7 @@ import json
 from typing import Any, Literal
 
 import polars as pl
+import pyarrow.parquet as pq
 from botocore.exceptions import ClientError
 
 from crypto_belief_pipeline.config import get_settings
@@ -113,6 +114,24 @@ def read_parquet_df(key: str, bucket: str | None = None) -> pl.DataFrame:
             raise translated from e
         raise
     return pl.read_parquet(io.BytesIO(obj["Body"].read()))
+
+
+def read_parquet_row_count(key: str, bucket: str | None = None) -> int:
+    """Return row count from Parquet metadata without decoding columns."""
+
+    settings = get_settings()
+    b = bucket or settings.s3_bucket
+    client = get_s3_client(settings=settings)
+    full_key = full_s3_key(key)
+    try:
+        obj = client.get_object(Bucket=b, Key=full_key)
+    except ClientError as e:
+        translated = _maybe_translate_not_found(e, key=full_key)
+        if isinstance(translated, LakeKeyNotFound):
+            raise translated from e
+        raise
+    raw = obj["Body"].read()
+    return int(pq.ParquetFile(io.BytesIO(raw)).metadata.num_rows)
 
 
 def list_parquet_keys_under(partition_prefix: str, bucket: str | None = None) -> list[str]:
@@ -274,4 +293,5 @@ __all__ = [
     "read_jsonl_records",
     "read_parquet_df",
     "read_parquet_partition_df",
+    "read_parquet_row_count",
 ]

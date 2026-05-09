@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC
 
 from crypto_belief_pipeline.collectors.alternative_me import fetch_fear_and_greed
 

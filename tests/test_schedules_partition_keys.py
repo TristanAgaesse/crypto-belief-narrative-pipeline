@@ -53,4 +53,4 @@ def test_hourly_partition_def_validates_open_hour_for_sub_hourly_schedules() -> 
     ):
         pk = hourly_partitions_def.get_partition_key_for_timestamp(dt.timestamp())
         assert pk == "2026-05-08-22:00"
-        hourly_partitions_def.validate_partition_key(pk)
+        assert hourly_partitions_def.has_partition_key(pk)

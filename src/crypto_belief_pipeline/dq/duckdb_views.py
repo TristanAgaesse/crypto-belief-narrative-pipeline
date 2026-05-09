@@ -11,7 +11,6 @@ from crypto_belief_pipeline.config import get_settings
 from crypto_belief_pipeline.contracts import (
     GOLD_LIVE_SIGNALS,
     GOLD_TRAINING_EXAMPLES,
-    DatasetContract,
     SILVER_BELIEF_PRICE_SNAPSHOTS,
     SILVER_CRYPTO_CANDLES_1M,
     SILVER_FEAR_GREED_DAILY,
@@ -25,6 +24,7 @@ from crypto_belief_pipeline.contracts import (
     SILVER_KALSHI_SERIES,
     SILVER_KALSHI_TRADES,
     SILVER_NARRATIVE_COUNTS,
+    DatasetContract,
 )
 from crypto_belief_pipeline.lake.paths import partition_path
 
@@ -136,10 +136,11 @@ def _empty_partition_select_sql(contract: DatasetContract) -> str:
 
     merged_dtypes: dict[str, Any] = dict(contract.dtypes or {})
     columns = sorted(frozenset(contract.required_columns) | frozenset(merged_dtypes.keys()))
-    casts = ", ".join(
-        f"CAST(NULL AS {_pl_type_to_duckdb_sql(merged_dtypes.get(col, pl.String))}) AS {_duck_ident(col)}"
-        for col in columns
-    )
+    parts: list[str] = []
+    for col in columns:
+        sql_type = _pl_type_to_duckdb_sql(merged_dtypes.get(col, pl.String))
+        parts.append(f"CAST(NULL AS {sql_type}) AS {_duck_ident(col)}")
+    casts = ", ".join(parts)
     return f"SELECT {casts} WHERE FALSE"
 
 

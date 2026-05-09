@@ -20,7 +20,12 @@ def test_normalize_skips_non_dict_records() -> None:
     assert df.height == 0
 
 
-def _sample_payload_row(*, value: str | int, ts: str | int, classification: str = "Neutral") -> dict:
+def _sample_payload_row(
+    *,
+    value: str | int,
+    ts: str | int,
+    classification: str = "Neutral",
+) -> dict:
     return {
         "source": "alternative_me",
         "fetched_at": "2026-05-06T12:00:00+00:00",
@@ -41,9 +46,7 @@ def _sample_payload_row(*, value: str | int, ts: str | int, classification: str 
 
 def test_normalize_coerces_string_value_and_timestamp() -> None:
     # API often returns value and timestamp as strings.
-    df = normalize_fear_greed_payload_records(
-        [_sample_payload_row(value="55", ts="1715126400")]
-    )
+    df = normalize_fear_greed_payload_records([_sample_payload_row(value="55", ts="1715126400")])
     BRONZE_FEAR_GREED.validate(df)
     assert df.height == 1
     assert df["value"][0] == 55
@@ -80,9 +83,7 @@ def test_normalize_dedupes_same_calendar_day_by_latest_fetched_at() -> None:
 
 
 def test_to_fear_greed_daily_contract() -> None:
-    bronze = normalize_fear_greed_payload_records(
-        [_sample_payload_row(value=60, ts=1715126400)]
-    )
+    bronze = normalize_fear_greed_payload_records([_sample_payload_row(value=60, ts=1715126400)])
     daily = to_fear_greed_daily(bronze)
     SILVER_FEAR_GREED_DAILY.validate(daily)
     assert daily.height == 1

@@ -1,0 +1,5 @@
+checks for silver_kalshi_candlesticks:
+  - missing_count(market_ticker) = 0
+  - missing_count(interval) = 0
+  - missing_count(period_start) = 0
+  - duplicate_count(market_ticker, interval, period_start) = 0

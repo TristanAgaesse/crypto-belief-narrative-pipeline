@@ -7,13 +7,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /opt/dagster/app
 
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md requirements.lock.txt ./
 
-# Install runtime dependencies first so Docker can cache them even when code changes.
-# (This repo doesn't use a lockfile; we parse deps from pyproject.toml.)
+# Install pinned runtime dependencies (same lockfile as CI) for reproducible images.
 RUN python -m pip install --upgrade pip \
-  && python -c "import tomllib; from pathlib import Path; cfg=tomllib.loads(Path('pyproject.toml').read_text('utf-8')); deps=cfg.get('project',{}).get('dependencies',[]); Path('/tmp/requirements.txt').write_text('\\n'.join(deps)+'\\n','utf-8')" \
-  && pip install -r /tmp/requirements.txt
+  && pip install -r requirements.lock.txt
 
 COPY src ./src
 COPY dq ./dq
