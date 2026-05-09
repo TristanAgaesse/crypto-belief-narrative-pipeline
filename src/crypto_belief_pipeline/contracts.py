@@ -272,6 +272,51 @@ BRONZE_GDELT_TIMELINE = DatasetContract(
     allowed_values={"source": frozenset({"gdelt"})},
 )
 
+BRONZE_FEAR_GREED = DatasetContract(
+    name="bronze_fear_greed",
+    required_columns=frozenset(
+        {
+            "source",
+            "index_name",
+            "timestamp_utc",
+            "date_utc",
+            "value",
+            "value_classification",
+            "time_until_update_seconds",
+            "fetched_at",
+            "raw_json",
+            "ingested_at",
+            "load_timestamp",
+        }
+    ),
+    dtypes={
+        "source": pl.String,
+        "index_name": pl.String,
+        "timestamp_utc": pl.Datetime,
+        "date_utc": pl.Date,
+        "value": pl.Int64,
+        "value_classification": pl.String,
+        "time_until_update_seconds": pl.Int64,
+        "fetched_at": pl.Datetime,
+        "raw_json": pl.String,
+        "ingested_at": pl.Datetime,
+        "load_timestamp": pl.Datetime,
+    },
+    non_null_columns=frozenset(
+        {
+            "source",
+            "index_name",
+            "timestamp_utc",
+            "date_utc",
+            "value",
+            "raw_json",
+            "ingested_at",
+            "load_timestamp",
+        }
+    ),
+    unique_key=("source", "date_utc"),
+    allowed_values={"source": frozenset({"alternative_me"})},
+)
 SILVER_BELIEF_PRICE_SNAPSHOTS = DatasetContract(
     name="silver_belief_price_snapshots",
     required_columns=frozenset(
@@ -339,6 +384,48 @@ SILVER_NARRATIVE_COUNTS = DatasetContract(
     allowed_values={"source": frozenset({"gdelt"})},
 )
 
+SILVER_FEAR_GREED_DAILY = DatasetContract(
+    name="silver_fear_greed_daily",
+    required_columns=frozenset(
+        {
+            "source",
+            "date_utc",
+            "value",
+            "value_classification",
+        }
+    ),
+    dtypes={
+        "source": pl.String,
+        "date_utc": pl.Date,
+        "value": pl.Int64,
+        "value_classification": pl.String,
+    },
+    non_null_columns=frozenset({"source", "date_utc", "value"}),
+    unique_key=("source", "date_utc"),
+    allowed_values={"source": frozenset({"alternative_me"})},
+)
+
+SILVER_FEAR_GREED_REGIME_FEATURES = DatasetContract(
+    name="silver_fear_greed_regime_features",
+    required_columns=frozenset(
+        {
+            "source",
+            "date_utc",
+            "value",
+            "risk_on_score",
+        }
+    ),
+    dtypes={
+        "source": pl.String,
+        "date_utc": pl.Date,
+        "value": pl.Int64,
+        "risk_on_score": pl.Float64,
+    },
+    non_null_columns=frozenset({"source", "date_utc", "value"}),
+    unique_key=("source", "date_utc"),
+    allowed_values={"source": frozenset({"alternative_me"})},
+)
+
 GOLD_TRAINING_EXAMPLES = DatasetContract(
     name="gold_training_examples",
     required_columns=frozenset(
@@ -348,6 +435,7 @@ GOLD_TRAINING_EXAMPLES = DatasetContract(
             "asset",
             "narrative",
             "belief_shock_abs_1h",
+            "risk_on_score",
             "underreaction_score",
             "is_candidate_event",
         }
@@ -358,6 +446,7 @@ GOLD_TRAINING_EXAMPLES = DatasetContract(
         "asset": pl.String,
         "narrative": pl.String,
         "belief_shock_abs_1h": pl.Float64,
+        "risk_on_score": pl.Float64,
         "underreaction_score": pl.Float64,
         "is_candidate_event": pl.Boolean,
     },
@@ -549,6 +638,7 @@ GOLD_LIVE_SIGNALS = DatasetContract(
             "asset",
             "narrative",
             "is_candidate_event",
+            "risk_on_score",
         }
     ),
     dtypes={
@@ -557,6 +647,7 @@ GOLD_LIVE_SIGNALS = DatasetContract(
         "asset": pl.String,
         "narrative": pl.String,
         "is_candidate_event": pl.Boolean,
+        "risk_on_score": pl.Float64,
     },
     non_null_columns=frozenset(
         {"event_time", "market_id", "asset", "narrative", "is_candidate_event"}
@@ -567,12 +658,15 @@ GOLD_LIVE_SIGNALS = DatasetContract(
 
 __all__ = [
     "BRONZE_BINANCE_KLINES",
+    "BRONZE_FEAR_GREED",
     "BRONZE_GDELT_TIMELINE",
     "BRONZE_POLYMARKET_MARKETS",
     "BRONZE_POLYMARKET_PRICES",
     "DatasetContract",
     "SILVER_BELIEF_PRICE_SNAPSHOTS",
     "SILVER_CRYPTO_CANDLES_1M",
+    "SILVER_FEAR_GREED_DAILY",
+    "SILVER_FEAR_GREED_REGIME_FEATURES",
     "SILVER_KALSHI_CANDLESTICKS",
     "SILVER_KALSHI_EVENT_REPRICING_FEATURES",
     "SILVER_KALSHI_EVENTS",

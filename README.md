@@ -145,6 +145,7 @@ Planned sources (later steps):
 - Polymarket
 - Binance USD-M futures klines
 - GDELT TimelineVol
+- Alternative.me Fear & Greed Index
 
 ## Current step status
 **Step 1**: scaffold + MinIO + config + lake helpers + tests + CI.

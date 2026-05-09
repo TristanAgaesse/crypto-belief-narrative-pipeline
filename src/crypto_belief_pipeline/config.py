@@ -27,6 +27,7 @@ class RuntimeCadence(BaseModel):
     polymarket_discovery_seconds: int = 21600
     kalshi_raw_seconds: int = 300
     gdelt_seconds: int = 3600
+    fear_greed_seconds: int = 3600
     silver_seconds: int = 300
     gold_live_seconds: int = 300
     gold_labels_seconds: int = 3600
