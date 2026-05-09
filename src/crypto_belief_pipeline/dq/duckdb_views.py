@@ -6,7 +6,6 @@ from pathlib import Path
 import duckdb
 
 from crypto_belief_pipeline.config import get_settings
-from crypto_belief_pipeline.lake.keys import full_s3_key
 from crypto_belief_pipeline.lake.paths import partition_path
 
 
@@ -79,7 +78,14 @@ def _lake_key(relative_key: str) -> str:
     # we must not rewrite the key.
     if relative_key.startswith("/") or "://" in relative_key:
         return relative_key
-    return full_s3_key(relative_key)
+
+    # Avoid importing through `lake.keys.full_s3_key` here so unit tests can patch
+    # `get_settings()` locally without needing to satisfy pydantic env requirements.
+    s = get_settings()
+    prefix = (getattr(s, "s3_prefix", "") or "").strip("/")
+    if not prefix:
+        return relative_key
+    return f"{prefix}/{relative_key.lstrip('/')}"
 
 
 def _silver_partition_glob(rd: str, dataset: str) -> str:
@@ -159,6 +165,10 @@ def create_duckdb_quality_db(
         "silver_kalshi_candlesticks": _lake_key(_silver_partition_glob(rd, "kalshi_candlesticks")),
         "silver_kalshi_event_repricing_features": _lake_key(
             _silver_partition_glob(rd, "kalshi_event_repricing_features")
+        ),
+        "silver_fear_greed_daily": _lake_key(_silver_partition_glob(rd, "fear_greed_daily")),
+        "silver_fear_greed_regime_features": _lake_key(
+            _silver_partition_glob(rd, "fear_greed_regime_features")
         ),
     }
     gold_keys: dict[str, str] = {

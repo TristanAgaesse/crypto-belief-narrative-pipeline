@@ -1,0 +1,6 @@
+checks for silver_fear_greed_daily:
+  # API or upstream gaps can yield an empty partition; do not require row_count > 0.
+  - missing_count(source) = 0
+  - missing_count(date_utc) = 0
+  - missing_count(value) = 0
+  - duplicate_count(source, date_utc) = 0

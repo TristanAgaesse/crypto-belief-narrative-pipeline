@@ -17,6 +17,10 @@ _KALSHI_SILVER_TABLES = (
     "silver_kalshi_candlesticks",
     "silver_kalshi_event_repricing_features",
 )
+_FEAR_GREED_SILVER_TABLES = (
+    "silver_fear_greed_daily",
+    "silver_fear_greed_regime_features",
+)
 
 
 class _Settings:
@@ -53,6 +57,11 @@ def test_create_duckdb_quality_db_creates_views(tmp_path, monkeypatch) -> None:
             name: Path(dv.partition_path("silver", name.removeprefix("silver_"), run_date))
             / "data.parquet"
             for name in _KALSHI_SILVER_TABLES
+        },
+        **{
+            name: Path(dv.partition_path("silver", name.removeprefix("silver_"), run_date))
+            / "data.parquet"
+            for name in _FEAR_GREED_SILVER_TABLES
         },
         "gold_training_examples": Path(dv.partition_path("gold", "training_examples", run_date))
         / "data.parquet",
@@ -91,6 +100,10 @@ def test_create_duckdb_quality_db_materialize_tables_optional(tmp_path, monkeypa
         *[
             ("silver", name.removeprefix("silver_"))
             for name in _KALSHI_SILVER_TABLES
+        ],
+        *[
+            ("silver", name.removeprefix("silver_"))
+            for name in _FEAR_GREED_SILVER_TABLES
         ],
         ("gold", "training_examples"),
         ("gold", "live_signals"),
@@ -141,6 +154,10 @@ def test_create_duckdb_quality_db_reads_microbatch_silver_shards(tmp_path, monke
             ("silver", name.removeprefix("silver_"))
             for name in _KALSHI_SILVER_TABLES
         ],
+        *[
+            ("silver", name.removeprefix("silver_"))
+            for name in _FEAR_GREED_SILVER_TABLES
+        ],
     ]:
         q_dir = Path(dv.partition_path(layer, dataset, run_date)) / "hour=12"
         q_dir.mkdir(parents=True, exist_ok=True)
@@ -178,6 +195,7 @@ def test_create_duckdb_quality_db_reads_partitioned_gold_when_partition_key_prov
         "crypto_candles_1m",
         "narrative_counts",
         *[name.removeprefix("silver_") for name in _KALSHI_SILVER_TABLES],
+        *[name.removeprefix("silver_") for name in _FEAR_GREED_SILVER_TABLES],
     ):
         p = Path(dv.partition_path("silver", dataset, run_date)) / "data.parquet"
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -243,6 +261,7 @@ def test_create_duckdb_quality_db_honors_bucket_override(tmp_path, monkeypatch) 
         "crypto_candles_1m",
         "narrative_counts",
         *[name.removeprefix("silver_") for name in _KALSHI_SILVER_TABLES],
+        *[name.removeprefix("silver_") for name in _FEAR_GREED_SILVER_TABLES],
     ):
         part = tmp_path / sample_bucket / "silver" / dataset / f"date={run_date}"
         part.mkdir(parents=True, exist_ok=True)
@@ -264,7 +283,9 @@ def test_create_duckdb_quality_db_honors_bucket_override(tmp_path, monkeypatch) 
 
     # Every view must have been created with the override bucket; the live
     # bucket from `_Settings.s3_bucket` must not appear.
-    assert captured_buckets == [sample_bucket] * (3 + len(_KALSHI_SILVER_TABLES) + 2)
+    assert captured_buckets == [
+        sample_bucket
+    ] * (3 + len(_KALSHI_SILVER_TABLES) + len(_FEAR_GREED_SILVER_TABLES) + 2)
     assert "dummy" not in captured_buckets
 
     con = duckdb.connect(str(out))
@@ -274,6 +295,7 @@ def test_create_duckdb_quality_db_honors_bucket_override(tmp_path, monkeypatch) 
             "silver_crypto_candles_1m",
             "silver_narrative_counts",
             *_KALSHI_SILVER_TABLES,
+            *_FEAR_GREED_SILVER_TABLES,
             "gold_training_examples",
             "gold_live_signals",
         ):
