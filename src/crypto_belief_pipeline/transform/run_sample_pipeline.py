@@ -3,10 +3,13 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import date
 
+import polars as pl
+
 from crypto_belief_pipeline.io_guardrails import resolve_sample_bucket
 from crypto_belief_pipeline.lake.paths import partition_path
 from crypto_belief_pipeline.lake.write import write_jsonl_records
 from crypto_belief_pipeline.sample_data import load_sample_jsonl
+from crypto_belief_pipeline.transform import pipeline_steps as ps
 from crypto_belief_pipeline.transform.pipeline_steps import (
     normalize_binance_to_silver,
     normalize_gdelt_to_silver,
@@ -82,6 +85,42 @@ def run_sample_pipeline(run_date: date | str = "2026-05-06") -> dict[str, str]:
             bucket=sample_bucket,
         )
     )
+
+    # Fear & Greed is not part of the bundled JSONL sample set, but gold/DQ expect
+    # the silver dataset to exist to avoid reading stale partitions. Write an
+    # explicit empty partition in sample mode.
+    fg_daily_key = f"{partition_path('silver', 'fear_greed_daily', run_date)}/data.parquet"
+    fg_regime_key = (
+        f"{partition_path('silver', 'fear_greed_regime_features', run_date)}/data.parquet"
+    )
+    ps.write_parquet_df(
+        pl.DataFrame(
+            schema={
+                "source": pl.String,
+                "date_utc": pl.Date,
+                "value": pl.Int64,
+                "value_classification": pl.String,
+                "processed_at": pl.Datetime(time_zone="UTC"),
+            }
+        ),
+        fg_daily_key,
+        bucket=sample_bucket,
+    )
+    ps.write_parquet_df(
+        pl.DataFrame(
+            schema={
+                "source": pl.String,
+                "date_utc": pl.Date,
+                "value": pl.Int64,
+                "risk_on_score": pl.Float64,
+                "processed_at": pl.Datetime(time_zone="UTC"),
+            }
+        ),
+        fg_regime_key,
+        bucket=sample_bucket,
+    )
+    written["silver_fear_greed_daily"] = fg_daily_key
+    written["silver_fear_greed_regime_features"] = fg_regime_key
 
     written["sample_bucket"] = sample_bucket
     return dict(_stable_items(written))
