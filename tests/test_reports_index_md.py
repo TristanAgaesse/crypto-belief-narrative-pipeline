@@ -20,6 +20,8 @@ def test_render_reports_index_md_with_quick_stats() -> None:
         issues_paths={"md": "reports/c.md", "json": "reports/d.json"},
     )
     assert "# Reports (2026-05-06)" in md
+    assert "run_summary.json" in md
+    assert "run_summary.md" in md
     assert "reports/a.txt" in md
     assert "reports/b.json" in md
     assert "reports/c.md" in md
@@ -32,6 +34,7 @@ def test_render_reports_index_md_with_quick_stats() -> None:
 
 def test_render_reports_index_md_without_quick_stats() -> None:
     md = render_reports_index_md("2026-05-06")
+    assert "run_summary.json" in md
     assert "## Quick stats" not in md
 
 

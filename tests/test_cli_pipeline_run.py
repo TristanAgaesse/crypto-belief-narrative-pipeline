@@ -14,6 +14,7 @@ def _silence_typer_echo(monkeypatch) -> None:
 def _patch_sample_bucket(monkeypatch, name: str = "sample-bucket") -> None:
     monkeypatch.setattr(cli, "_ensure_bucket", lambda: None)
     monkeypatch.setattr(cli, "_ensure_sample_bucket", lambda: name)
+    monkeypatch.setattr(cli, "read_parquet_row_count", lambda *a, **k: 0)
 
 
 def test_pipeline_run_sample_threads_silver_keys_into_build_gold(monkeypatch) -> None:
@@ -178,6 +179,7 @@ def test_pipeline_run_live_polymarket_binance_runs_gold_without_gdelt(monkeypatc
 
     _silence_typer_echo(monkeypatch)
     monkeypatch.setattr(cli, "_ensure_bucket", lambda: None)
+    monkeypatch.setattr(cli, "read_parquet_row_count", lambda *a, **k: 0)
 
     monkeypatch.setattr(cli, "run_live_collectors", lambda **_kw: {})
 
@@ -275,6 +277,7 @@ def test_pipeline_run_live_full_sources_threads_silver_keys_to_gold(monkeypatch)
 
     _silence_typer_echo(monkeypatch)
     monkeypatch.setattr(cli, "_ensure_bucket", lambda: None)
+    monkeypatch.setattr(cli, "read_parquet_row_count", lambda *a, **k: 0)
     monkeypatch.setattr(cli, "run_live_collectors", lambda **_kw: {})
 
     normalized = {
