@@ -1,0 +1,4 @@
+checks for silver_kalshi_event_repricing_features:
+  - missing_count(as_of) = 0
+  - missing_count(market_ticker) = 0
+  - duplicate_count(as_of, market_ticker) = 0

@@ -28,6 +28,7 @@ from crypto_belief_pipeline.contracts import (
     SILVER_KALSHI_TRADES,
     SILVER_NARRATIVE_COUNTS,
 )
+from crypto_belief_pipeline.features.kalshi_repricing import build_event_repricing_features
 from crypto_belief_pipeline.lake.read import read_parquet_df
 from crypto_belief_pipeline.lake.write import write_parquet_df
 from crypto_belief_pipeline.orchestration._helpers import (
@@ -62,8 +63,12 @@ from crypto_belief_pipeline.transform.normalize_binance import (
     normalize_klines,
     to_crypto_candles_1m,
 )
+from crypto_belief_pipeline.transform.normalize_fear_greed import (
+    build_regime_features,
+    normalize_fear_greed_payload_records,
+    to_fear_greed_daily,
+)
 from crypto_belief_pipeline.transform.normalize_gdelt import normalize_timeline, to_narrative_counts
-from crypto_belief_pipeline.features.kalshi_repricing import build_event_repricing_features
 from crypto_belief_pipeline.transform.normalize_kalshi import (
     load_keyword_config,
     normalize_kalshi_candlesticks,
@@ -79,11 +84,6 @@ from crypto_belief_pipeline.transform.normalize_kalshi import (
     to_silver_kalshi_orderbook_snapshots,
     to_silver_kalshi_series,
     to_silver_kalshi_trades,
-)
-from crypto_belief_pipeline.transform.normalize_fear_greed import (
-    build_regime_features,
-    normalize_fear_greed_payload_records,
-    to_fear_greed_daily,
 )
 from crypto_belief_pipeline.transform.normalize_polymarket import (
     normalize_markets,
@@ -361,7 +361,10 @@ def bronze_gdelt(context) -> dict[str, str]:
 @asset(
     partitions_def=hourly_partitions_def,
     deps=[raw_kalshi],
-    description="Normalize Kalshi raw JSONL into bronze Parquet (markets/events/series/trades/books/candles).",
+    description=(
+        "Normalize Kalshi raw JSONL into bronze Parquet "
+        "(markets/events/series/trades/books/candles)."
+    ),
 )
 def bronze_kalshi(context) -> dict[str, str]:
     run_date = resolve_run_date_from_context(context)
@@ -519,7 +522,10 @@ def silver_kalshi_markets(context, bronze_kalshi: dict[str, str]) -> dict[str, s
         partition_key=context.partition_key if context.has_partition_key else None,
     )
     write_parquet_df(df, key, bucket=bucket)
-    return {"silver_kalshi_markets": key, "lake_bucket": bucket} if bucket else {"silver_kalshi_markets": key}
+    out: dict[str, str] = {"silver_kalshi_markets": key}
+    if bucket:
+        out["lake_bucket"] = bucket
+    return out
 
 
 @asset(
@@ -541,9 +547,11 @@ def silver_kalshi_market_snapshots(context, bronze_kalshi: dict[str, str]) -> di
         partition_key=context.partition_key if context.has_partition_key else None,
     )
     write_parquet_df(df, key, bucket=bucket)
-    return {"silver_kalshi_market_snapshots": key, "lake_bucket": bucket} if bucket else {
-        "silver_kalshi_market_snapshots": key
-    }
+    return (
+        {"silver_kalshi_market_snapshots": key, "lake_bucket": bucket}
+        if bucket
+        else {"silver_kalshi_market_snapshots": key}
+    )
 
 
 @asset(
@@ -565,7 +573,10 @@ def silver_kalshi_events(context, bronze_kalshi: dict[str, str]) -> dict[str, st
         partition_key=context.partition_key if context.has_partition_key else None,
     )
     write_parquet_df(df, key, bucket=bucket)
-    return {"silver_kalshi_events": key, "lake_bucket": bucket} if bucket else {"silver_kalshi_events": key}
+    out_ev: dict[str, str] = {"silver_kalshi_events": key}
+    if bucket:
+        out_ev["lake_bucket"] = bucket
+    return out_ev
 
 
 @asset(
@@ -587,7 +598,10 @@ def silver_kalshi_series(context, bronze_kalshi: dict[str, str]) -> dict[str, st
         partition_key=context.partition_key if context.has_partition_key else None,
     )
     write_parquet_df(df, key, bucket=bucket)
-    return {"silver_kalshi_series": key, "lake_bucket": bucket} if bucket else {"silver_kalshi_series": key}
+    out_se: dict[str, str] = {"silver_kalshi_series": key}
+    if bucket:
+        out_se["lake_bucket"] = bucket
+    return out_se
 
 
 @asset(
@@ -609,7 +623,10 @@ def silver_kalshi_trades(context, bronze_kalshi: dict[str, str]) -> dict[str, st
         partition_key=context.partition_key if context.has_partition_key else None,
     )
     write_parquet_df(df, key, bucket=bucket)
-    return {"silver_kalshi_trades": key, "lake_bucket": bucket} if bucket else {"silver_kalshi_trades": key}
+    out_tr: dict[str, str] = {"silver_kalshi_trades": key}
+    if bucket:
+        out_tr["lake_bucket"] = bucket
+    return out_tr
 
 
 @asset(
@@ -631,9 +648,11 @@ def silver_kalshi_orderbook_snapshots(context, bronze_kalshi: dict[str, str]) ->
         partition_key=context.partition_key if context.has_partition_key else None,
     )
     write_parquet_df(df, key, bucket=bucket)
-    return {"silver_kalshi_orderbook_snapshots": key, "lake_bucket": bucket} if bucket else {
-        "silver_kalshi_orderbook_snapshots": key
-    }
+    return (
+        {"silver_kalshi_orderbook_snapshots": key, "lake_bucket": bucket}
+        if bucket
+        else {"silver_kalshi_orderbook_snapshots": key}
+    )
 
 
 @asset(
@@ -655,9 +674,11 @@ def silver_kalshi_candlesticks(context, bronze_kalshi: dict[str, str]) -> dict[s
         partition_key=context.partition_key if context.has_partition_key else None,
     )
     write_parquet_df(df, key, bucket=bucket)
-    return {"silver_kalshi_candlesticks": key, "lake_bucket": bucket} if bucket else {
-        "silver_kalshi_candlesticks": key
-    }
+    return (
+        {"silver_kalshi_candlesticks": key, "lake_bucket": bucket}
+        if bucket
+        else {"silver_kalshi_candlesticks": key}
+    )
 
 
 @asset(
@@ -689,9 +710,11 @@ def silver_kalshi_event_repricing_features(
         partition_key=context.partition_key if context.has_partition_key else None,
     )
     write_parquet_df(df, key, bucket=bucket)
-    return {"silver_kalshi_event_repricing_features": key, "lake_bucket": bucket} if bucket else {
-        "silver_kalshi_event_repricing_features": key
-    }
+    return (
+        {"silver_kalshi_event_repricing_features": key, "lake_bucket": bucket}
+        if bucket
+        else {"silver_kalshi_event_repricing_features": key}
+    )
 
 
 @asset(
@@ -817,7 +840,10 @@ def silver_narrative_counts(context, bronze_gdelt: dict[str, str]) -> dict[str, 
 @asset(
     partitions_def=hourly_partitions_def,
     deps=[raw_fear_greed],
-    description="Normalize Alternative.me Fear & Greed raw JSONL into bronze Parquet (typed, source-shaped).",
+    description=(
+        "Normalize Alternative.me Fear & Greed raw JSONL into bronze Parquet "
+        "(typed, source-shaped)."
+    ),
 )
 def bronze_fear_greed(context) -> dict[str, str]:
     run_date = resolve_run_date_from_context(context)

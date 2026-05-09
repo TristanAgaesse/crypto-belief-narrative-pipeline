@@ -25,8 +25,8 @@ from crypto_belief_pipeline.orchestration._helpers import (
     raw_bronze_minute_partitions_def,
 )
 from crypto_belief_pipeline.orchestration.raw_inputs_from_lake import (
-    list_raw_fear_greed_for_partition_window,
     list_raw_binance_for_partition_window,
+    list_raw_fear_greed_for_partition_window,
     list_raw_gdelt_for_partition_window,
     list_raw_kalshi_for_partition_window,
     list_raw_polymarket_for_partition_window,
@@ -146,7 +146,7 @@ def raw_sample_inputs(context) -> dict[str, str]:
 @asset(
     name="raw_fear_greed_staging",
     partitions_def=raw_bronze_minute_partitions_def,
-    description="Hourly-ish staging ingest: collect Alternative.me Fear & Greed payload into raw JSONL.",
+    description=("Hourly-ish staging: collect Alternative.me Fear & Greed payload into raw JSONL."),
 )
 def raw_fear_greed_staging(context) -> dict[str, str]:
     run_date = resolve_run_date_from_context(context)
@@ -447,9 +447,7 @@ def raw_kalshi_staging(context) -> dict[str, str]:
     )
 
     def _mk(suffix: str) -> str:
-        return microbatch_key(
-            "raw", "provider=kalshi", parts.date, parts.hour, batch_id, suffix
-        )
+        return microbatch_key("raw", "provider=kalshi", parts.date, parts.hour, batch_id, suffix)
 
     keys = {
         "raw_kalshi_markets": _mk("_markets.jsonl"),

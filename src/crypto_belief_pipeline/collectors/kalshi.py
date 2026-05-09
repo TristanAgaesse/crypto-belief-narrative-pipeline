@@ -112,7 +112,10 @@ def _market_text_haystack(m: dict[str, Any]) -> str:
 
 
 def market_matches_hypothesis_scope(market: dict[str, Any], cfg: dict[str, Any]) -> bool:
-    """True if this market text matches ``keywords`` or ``asset_aliases`` (alpha: BTC/ETH/SOL belief layer)."""
+    """True if market text matches ``keywords`` or ``asset_aliases``.
+
+    Scoped to the BTC/ETH/SOL belief layer in the alpha config.
+    """
 
     keywords = cfg.get("keywords") or []
     needles = (
@@ -327,7 +330,8 @@ def collect_kalshi_raw(
     """Pull Kalshi datasets for one ingest batch.
 
     Returns:
-        payloads: keys ``markets``, ``events``, ``series``, ``trades``, ``orderbooks``, ``candlesticks``
+        payloads: ``markets``, ``events``, ``series``, ``trades``, ``orderbooks``,
+            ``candlesticks``
         meta: counts, errors, timing
     """
 
@@ -443,7 +447,11 @@ def collect_kalshi_raw(
 
     # Orderbooks + candles: prioritize hypothesis-scoped markets by keyword overlap.
     keywords = cfg.get("keywords") or []
-    needles = [str(k).strip().lower() for k in keywords if str(k).strip()] if isinstance(keywords, list) else []
+    needles = (
+        [str(k).strip().lower() for k in keywords if str(k).strip()]
+        if isinstance(keywords, list)
+        else []
+    )
 
     ranked = list(markets_for_downstream)
     ranked.sort(
@@ -455,21 +463,15 @@ def collect_kalshi_raw(
     for m in ranked:
         if len(ob_candidates) >= int(cfg.get("max_markets_orderbook") or 40):
             break
-        if not isinstance(m, dict):
-            continue
-        tk = m.get("ticker")
-        if not isinstance(tk, str) or not tk:
+        ticker_raw = m.get("ticker")
+        if not isinstance(ticker_raw, str) or not ticker_raw:
             continue
         hay = _market_text_haystack(m)
         if needles and not any(n in hay for n in needles):
             continue
         ob_candidates.append(m)
 
-    if (
-        not ob_candidates
-        and ranked
-        and bool(cfg.get("orderbook_fallback_to_volume", False))
-    ):
+    if not ob_candidates and ranked and bool(cfg.get("orderbook_fallback_to_volume", False)):
         ob_candidates = ranked[: int(cfg.get("max_markets_orderbook") or 40)]
 
     if not _disabled(cfg, "orderbooks"):

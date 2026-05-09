@@ -516,7 +516,9 @@ def resolve_raw_fear_greed_for_partition(run_date: date) -> tuple[dict[str, str]
                     },
                     bucket,
                 )
-            raise FileNotFoundError(f"No fear_greed raw JSONL under {prefix!r} in bucket {bucket!r}")
+            raise FileNotFoundError(
+                f"No fear_greed raw JSONL under {prefix!r} in bucket {bucket!r}"
+            )
         except FileNotFoundError as e:
             last_err = e
             continue

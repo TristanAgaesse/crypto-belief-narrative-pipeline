@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import polars as pl
 
-_TOLS: dict[str, pl.Duration] = {
+_TOLS: dict[str, Any] = {
     "5m": pl.duration(minutes=5),
     "15m": pl.duration(minutes=15),
     "1h": pl.duration(hours=1),
@@ -34,7 +36,7 @@ def _empty_features() -> pl.DataFrame:
     )
 
 
-def _delta_column(sub: pl.DataFrame, label: str, tol: pl.Duration) -> pl.DataFrame:
+def _delta_column(sub: pl.DataFrame, label: str, tol: Any) -> pl.DataFrame:
     """Per-market: mid_now - mid at last snapshot at or before (as_of - tol)."""
 
     left = sub.select(
@@ -128,10 +130,9 @@ def build_event_repricing_features(
     acc = acc.with_columns(
         (pl.col("delta_1h") - pl.col("delta_15m")).alias("velocity_1h"),
     ).with_columns(
-        (
-            pl.col("velocity_1h")
-            - pl.col("velocity_1h").shift(1).over("market_ticker")
-        ).alias("acceleration_1h"),
+        (pl.col("velocity_1h") - pl.col("velocity_1h").shift(1).over("market_ticker")).alias(
+            "acceleration_1h"
+        ),
     )
 
     if trades.height > 0 and "executed_at" in trades.columns:
@@ -143,13 +144,31 @@ def build_event_repricing_features(
             .fill_null(0.0)
             .alias("size"),
         )
-        vol = tr.group_by("market_ticker").agg(pl.col("size").sum().alias("_trade_vol"))
-        acc = acc.join(vol, on="market_ticker", how="left")
+        # Point-in-time: cumulative traded size only up to each snapshot `as_of`
+        # (no lookahead from trades executed after the row's as_of).
+        tr = tr.sort(["market_ticker", "executed_at"]).with_columns(
+            pl.col("size").cum_sum().over("market_ticker").alias("_cum_trade_vol")
+        )
+        trade_asof = tr.select(
+            [
+                "market_ticker",
+                pl.col("executed_at").alias("_trade_asof_key"),
+                "_cum_trade_vol",
+            ]
+        ).sort(["market_ticker", "_trade_asof_key"])
+        acc = acc.sort(["market_ticker", "as_of"]).join_asof(
+            trade_asof,
+            left_on="as_of",
+            right_on="_trade_asof_key",
+            by="market_ticker",
+            strategy="backward",
+        )
+        acc = acc.drop("_trade_asof_key", strict=False)
         acc = acc.with_columns(
-            (pl.col("_trade_vol").fill_null(0.0) * pl.col("delta_5m").abs().fill_null(0.0)).alias(
-                "trade_confirm_score"
-            )
-        ).drop("_trade_vol")
+            (
+                pl.col("_cum_trade_vol").fill_null(0.0) * pl.col("delta_5m").abs().fill_null(0.0)
+            ).alias("trade_confirm_score")
+        ).drop("_cum_trade_vol", strict=False)
     else:
         acc = acc.with_columns(pl.lit(0.0).alias("trade_confirm_score"))
 

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
-
 from crypto_belief_pipeline.collectors import kalshi as k
 
 
