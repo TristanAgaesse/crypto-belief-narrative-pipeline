@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+from crypto_belief_pipeline.collectors.alternative_me import fetch_fear_and_greed
 from crypto_belief_pipeline.collectors.binance import collect_binance_raw
 from crypto_belief_pipeline.collectors.gdelt import collect_gdelt_raw_window
 from crypto_belief_pipeline.collectors.kalshi import collect_kalshi_raw
@@ -24,6 +25,7 @@ from crypto_belief_pipeline.orchestration._helpers import (
     raw_bronze_minute_partitions_def,
 )
 from crypto_belief_pipeline.orchestration.raw_inputs_from_lake import (
+    list_raw_fear_greed_for_partition_window,
     list_raw_binance_for_partition_window,
     list_raw_gdelt_for_partition_window,
     list_raw_kalshi_for_partition_window,
@@ -136,6 +138,65 @@ def raw_sample_inputs(context) -> dict[str, str]:
             "run_date": run_date.isoformat(),
             "written_keys": list(written.keys()),
             "sample_bucket": sample_bucket,
+        }
+    )
+    return written
+
+
+@asset(
+    name="raw_fear_greed_staging",
+    partitions_def=raw_bronze_minute_partitions_def,
+    description="Hourly-ish staging ingest: collect Alternative.me Fear & Greed payload into raw JSONL.",
+)
+def raw_fear_greed_staging(context) -> dict[str, str]:
+    run_date = resolve_run_date_from_context(context)
+    partition_window = resolve_partition_window_from_context(context)
+    tick_now = (
+        (partition_window.end - timedelta(seconds=1))
+        if partition_window is not None
+        else _partition_tick_now_utc(run_date)
+    )
+    batch_id = generate_batch_id(tick_now, uniqueness=str(getattr(context, "run_id", ""))[:8])
+    parts = split_batch_parts(batch_id)
+
+    res = fetch_fear_and_greed(limit=None)
+    record = {
+        "source": "alternative_me",
+        "endpoint": res.endpoint,
+        "params": res.params,
+        "fetched_at": res.fetched_at.isoformat(),
+        "ok": bool(res.ok),
+        "error": res.error,
+        "raw_hash": res.raw_hash,
+        "payload": res.payload,
+    }
+    key = microbatch_key(
+        "raw",
+        "provider=alternative_me_fear_greed",
+        parts.date,
+        parts.hour,
+        batch_id,
+        ".jsonl",
+    )
+    write_jsonl_records([record], key)
+    lake_bucket = get_settings().s3_bucket
+
+    written = {
+        "raw_fear_greed_payload": key,
+        "source_batch_id": batch_id,
+        "source_window_start": "",
+        "source_window_end": "",
+        "lake_bucket": lake_bucket,
+    }
+    context.add_output_metadata(
+        {
+            "run_date": run_date.isoformat(),
+            "written_keys": list(written.keys()),
+            "batch_id": batch_id,
+            "fetched_at": res.fetched_at.isoformat(),
+            "ok": bool(res.ok),
+            "error": res.error or "",
+            "raw_hash": res.raw_hash or "",
         }
     )
     return written
@@ -794,17 +855,85 @@ def raw_kalshi_hourly(context) -> dict[str, str]:
     return written
 
 
+@asset(
+    name="raw_fear_greed",
+    partitions_def=hourly_partitions_def,
+    deps=[raw_fear_greed_staging],
+    description=(
+        "Canonical hourly Alternative.me Fear & Greed payload derived from staging microbatches."
+    ),
+)
+def raw_fear_greed_hourly(context) -> dict[str, str]:
+    run_date = resolve_run_date_from_context(context)
+    partition_window = resolve_partition_window_from_context(context)
+    if partition_window is None:
+        raise ValueError("raw_fear_greed hourly asset requires a partition window")
+
+    candidates, read_bucket = list_raw_fear_greed_for_partition_window(
+        partition_start=partition_window.start,
+        partition_end=partition_window.end,
+    )
+    keys = [it["raw_fear_greed_payload"] for it in candidates]
+    records = _records_for_hour_window(keys, bucket=read_bucket)
+    last_batch_id = candidates[-1]["source_batch_id"] if candidates else ""
+
+    def _sig(r: dict) -> tuple[str, str]:
+        return (str(r.get("fetched_at") or ""), str(r.get("raw_hash") or ""))
+
+    seen: set[str] = set()
+    deduped: list[dict] = []
+    for r in sorted(records, key=_sig):
+        rh = str(r.get("raw_hash") or "")
+        if rh and rh in seen:
+            continue
+        if rh:
+            seen.add(rh)
+        deduped.append(r)
+
+    out_key = _canonical_raw_output_key(
+        dataset="provider=alternative_me_fear_greed",
+        run_date=run_date,
+        partition_key=partition_window.partition_key,
+    )
+    write_jsonl_records(deduped, out_key, bucket=read_bucket)
+
+    written = {
+        "raw_fear_greed_payload": out_key,
+        "source_batch_id": last_batch_id,
+        "source_window_start": partition_window.start.isoformat(),
+        "source_window_end": partition_window.end.isoformat(),
+        "lake_bucket": read_bucket,
+    }
+    context.add_output_metadata(
+        {
+            "run_date": run_date.isoformat(),
+            "window_start_utc": partition_window.start.isoformat(),
+            "window_end_utc": partition_window.end.isoformat(),
+            "window_closed_open": "[start,end)",
+            "input_microbatches_seen": len(candidates),
+            "input_microbatches_processed": len(candidates),
+            "records_seen": len(records),
+            "records_written": len(deduped),
+        }
+    )
+    return written
+
+
 # Backward-compatible module symbols for existing imports.
 raw_polymarket = raw_polymarket_hourly
 raw_binance = raw_binance_hourly
 raw_gdelt = raw_gdelt_hourly
 raw_kalshi = raw_kalshi_hourly
+raw_fear_greed = raw_fear_greed_hourly
 
 
 __all__ = [
     "raw_binance",
     "raw_binance_hourly",
     "raw_binance_staging",
+    "raw_fear_greed",
+    "raw_fear_greed_hourly",
+    "raw_fear_greed_staging",
     "raw_gdelt",
     "raw_gdelt_hourly",
     "raw_gdelt_staging",

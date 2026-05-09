@@ -497,6 +497,32 @@ def _kalshi_micro_keys_from_markets_key(markets_key: str) -> dict[str, str]:
     }
 
 
+def resolve_raw_fear_greed_for_partition(run_date: date) -> tuple[dict[str, str], str]:
+    prefix = partition_path("raw", "provider=alternative_me_fear_greed", run_date)
+    last_err: FileNotFoundError | None = None
+    for bucket in _candidate_buckets():
+        try:
+            keys = set(list_jsonl_keys_under(prefix, bucket=bucket))
+            micro = sorted(k for k in keys if _is_microbatch_non_polymarket_jsonl(k))
+            if micro:
+                chosen = micro[-1]
+                bid = _batch_id_from_micro_key(chosen)
+                return (
+                    {
+                        "raw_fear_greed_payload": chosen,
+                        "source_batch_id": bid,
+                        "source_window_start": "",
+                        "source_window_end": "",
+                    },
+                    bucket,
+                )
+            raise FileNotFoundError(f"No fear_greed raw JSONL under {prefix!r} in bucket {bucket!r}")
+        except FileNotFoundError as e:
+            last_err = e
+            continue
+    raise last_err or FileNotFoundError(f"No fear_greed raw under {prefix!r}")
+
+
 def list_raw_kalshi_for_partition_window(
     *,
     partition_start: datetime,
@@ -566,6 +592,64 @@ def list_raw_kalshi_for_partition_window(
     )
 
 
+def list_raw_fear_greed_for_partition_window(
+    *,
+    partition_start: datetime,
+    partition_end: datetime,
+    include_canonical_hourly: bool = False,
+) -> tuple[list[dict[str, str]], str]:
+    last_err: FileNotFoundError | None = None
+    dataset = "provider=alternative_me_fear_greed"
+    for bucket in _candidate_buckets():
+        try:
+            keys = _list_window_jsonl_keys(dataset, partition_start, partition_end, bucket=bucket)
+            if include_canonical_hourly:
+                canonical_key = _canonical_raw_hourly_key(
+                    dataset=dataset,
+                    partition_start=partition_start,
+                )
+                if canonical_key in keys:
+                    canonical_batch_id = (
+                        f"{partition_start.astimezone(UTC).strftime('%Y%m%dT%H%M%SZ')}_canonical"
+                    )
+                    return (
+                        [
+                            {
+                                "raw_fear_greed_payload": canonical_key,
+                                "source_batch_id": canonical_batch_id,
+                                "source_window_start": "",
+                                "source_window_end": "",
+                            }
+                        ],
+                        bucket,
+                    )
+            micro = sorted(k for k in keys if _is_microbatch_non_polymarket_jsonl(k))
+            out: list[dict[str, str]] = []
+            for chosen in micro:
+                ts = _batch_ts_from_key(chosen)
+                if ts is None or not (partition_start <= ts < partition_end):
+                    continue
+                out.append(
+                    {
+                        "raw_fear_greed_payload": chosen,
+                        "source_batch_id": _batch_id_from_micro_key(chosen),
+                        "source_window_start": "",
+                        "source_window_end": "",
+                    }
+                )
+            return out, bucket
+        except FileNotFoundError as e:
+            last_err = e
+            continue
+    raise last_err or FileNotFoundError(
+        _no_raw_window_msg(
+            dataset=dataset,
+            partition_start=partition_start,
+            partition_end=partition_end,
+        )
+    )
+
+
 def unseen_raw_inputs_for_partition(
     *,
     consumer_asset: str,
@@ -603,10 +687,12 @@ def unseen_raw_inputs_for_partition(
 
 __all__ = [
     "list_raw_binance_for_partition_window",
+    "list_raw_fear_greed_for_partition_window",
     "list_raw_gdelt_for_partition_window",
     "list_raw_kalshi_for_partition_window",
     "list_raw_polymarket_for_partition_window",
     "resolve_raw_binance_for_partition",
+    "resolve_raw_fear_greed_for_partition",
     "resolve_raw_gdelt_for_partition",
     "resolve_raw_polymarket_for_partition",
     "unseen_raw_inputs_for_partition",
