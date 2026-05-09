@@ -3,7 +3,7 @@ DATE ?= 2026-05-06
 
 .PHONY: setup lint format typecheck check test minio-up minio-down ensure-bucket check-config run-sample \
 	smoke-test-apis fetch-live run-live build-gold dq detect-data-issues dagster-dev \
-	dagster-materialize-sample generate-reports full-sample \
+	dagster-materialize-sample generate-reports full-sample reviewer-demo \
 	docker-build build-control-plane docker-up docker-down dagster-up dagster-down dagster-ensure-bucket \
 	deploy deploy-persist deploy-validate deploy-rollback
 
@@ -123,3 +123,17 @@ full-sample:
 	$(MAKE) dq
 	$(MAKE) detect-data-issues
 	$(MAKE) generate-reports
+
+# Deterministic reviewer path: bootstrap (venv + lint/tests), MinIO, sample E2E + run summary.
+reviewer-demo:
+	@test -f .env || (cp .env.example .env && echo ">>> Created .env from .env.example")
+	@test -d .venv || $(MAKE) setup
+	$(MAKE) check
+	$(MAKE) minio-up
+	$(MAKE) ensure-bucket
+	. .venv/bin/activate && python -m crypto_belief_pipeline.cli pipeline run --date $(DATE) --mode sample
+	@echo ">>> Artifacts (sample bucket from config/runtime.yaml sample.sample_lake_bucket):"
+	@echo "    - Lake: raw/, bronze/, silver/, gold/ under that bucket"
+	@echo "    - reports/run_summary.json, reports/run_summary.md"
+	@echo "    - reports/soda_scan_summary.json, reports/soda_scan_output.txt"
+	@echo "    - reports/data_issues.json, reports/data_issues.md"

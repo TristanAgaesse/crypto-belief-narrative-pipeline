@@ -18,7 +18,10 @@ dependencies = [
   "dagster-duckdb>=0.23",
   "dagster-docker>=0.23",
   "dagster-webserver>=1.7",
-  "duckdb>=1.0.0",
+  # soda-core-duckdb declares `duckdb<1.1.0`; keep the same upper bound so the
+  # lockfile resolves. When Soda relaxes that pin, raise the max here and refresh
+  # `requirements.lock.txt` (see docs/reproducibility.md).
+  "duckdb>=1.0.0,<1.1.0",
   "gdeltdoc>=1.0",
   "httpx>=0.27",
   "pandas>=2.2",
