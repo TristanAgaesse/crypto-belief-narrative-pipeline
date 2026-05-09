@@ -434,6 +434,7 @@ GOLD_TRAINING_EXAMPLES = DatasetContract(
             "market_id",
             "asset",
             "narrative",
+            "direction",
             "belief_shock_abs_1h",
             "risk_on_score",
             "underreaction_score",
@@ -445,15 +446,26 @@ GOLD_TRAINING_EXAMPLES = DatasetContract(
         "market_id": pl.String,
         "asset": pl.String,
         "narrative": pl.String,
+        "direction": pl.Int64,
         "belief_shock_abs_1h": pl.Float64,
         "risk_on_score": pl.Float64,
         "underreaction_score": pl.Float64,
         "is_candidate_event": pl.Boolean,
     },
     non_null_columns=frozenset(
-        {"event_time", "market_id", "asset", "narrative", "is_candidate_event"}
+        {
+            "event_time",
+            "market_id",
+            "asset",
+            "narrative",
+            "direction",
+            "is_candidate_event",
+        }
     ),
     unique_key=("event_time", "market_id", "asset", "narrative"),
+    allowed_values={
+        "direction": frozenset({-1, 1}),
+    },
 )
 
 SILVER_KALSHI_MARKETS = DatasetContract(

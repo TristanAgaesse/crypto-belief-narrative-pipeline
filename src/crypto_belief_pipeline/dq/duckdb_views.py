@@ -2,10 +2,30 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import duckdb
+import polars as pl
 
 from crypto_belief_pipeline.config import get_settings
+from crypto_belief_pipeline.contracts import (
+    GOLD_LIVE_SIGNALS,
+    GOLD_TRAINING_EXAMPLES,
+    DatasetContract,
+    SILVER_BELIEF_PRICE_SNAPSHOTS,
+    SILVER_CRYPTO_CANDLES_1M,
+    SILVER_FEAR_GREED_DAILY,
+    SILVER_FEAR_GREED_REGIME_FEATURES,
+    SILVER_KALSHI_CANDLESTICKS,
+    SILVER_KALSHI_EVENT_REPRICING_FEATURES,
+    SILVER_KALSHI_EVENTS,
+    SILVER_KALSHI_MARKET_SNAPSHOTS,
+    SILVER_KALSHI_MARKETS,
+    SILVER_KALSHI_ORDERBOOK_SNAPSHOTS,
+    SILVER_KALSHI_SERIES,
+    SILVER_KALSHI_TRADES,
+    SILVER_NARRATIVE_COUNTS,
+)
 from crypto_belief_pipeline.lake.paths import partition_path
 
 
@@ -63,6 +83,69 @@ def _s3_uri(key: str, bucket: str) -> str:
 
 def _sql_quote(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
+
+
+def _duck_ident(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+def _pl_type_to_duckdb_sql(pl_type: Any) -> str:
+    # Contracts use bare classes (e.g. ``pl.Datetime``); runtime frames may use
+    # parametrized dtypes (e.g. ``Datetime('us')``). Support both.
+    if pl_type == pl.Datetime or isinstance(pl_type, pl.Datetime):
+        return "TIMESTAMP"
+    if pl_type == pl.Date or isinstance(pl_type, pl.Date):
+        return "DATE"
+    if pl_type in (pl.String, pl.Utf8):
+        return "VARCHAR"
+    if pl_type == pl.Boolean:
+        return "BOOLEAN"
+    if pl_type in (pl.Float64, pl.Float32):
+        return "DOUBLE"
+    if pl_type == pl.Int64:
+        return "BIGINT"
+    if pl_type in (pl.Int32, pl.UInt32, pl.UInt64, pl.Int16, pl.UInt16):
+        return "BIGINT"
+    return "VARCHAR"
+
+
+_SILVER_VIEW_CONTRACTS: dict[str, DatasetContract] = {
+    "silver_belief_price_snapshots": SILVER_BELIEF_PRICE_SNAPSHOTS,
+    "silver_crypto_candles_1m": SILVER_CRYPTO_CANDLES_1M,
+    "silver_narrative_counts": SILVER_NARRATIVE_COUNTS,
+    "silver_kalshi_markets": SILVER_KALSHI_MARKETS,
+    "silver_kalshi_market_snapshots": SILVER_KALSHI_MARKET_SNAPSHOTS,
+    "silver_kalshi_events": SILVER_KALSHI_EVENTS,
+    "silver_kalshi_series": SILVER_KALSHI_SERIES,
+    "silver_kalshi_trades": SILVER_KALSHI_TRADES,
+    "silver_kalshi_orderbook_snapshots": SILVER_KALSHI_ORDERBOOK_SNAPSHOTS,
+    "silver_kalshi_candlesticks": SILVER_KALSHI_CANDLESTICKS,
+    "silver_kalshi_event_repricing_features": SILVER_KALSHI_EVENT_REPRICING_FEATURES,
+    "silver_fear_greed_daily": SILVER_FEAR_GREED_DAILY,
+    "silver_fear_greed_regime_features": SILVER_FEAR_GREED_REGIME_FEATURES,
+}
+
+_GOLD_VIEW_CONTRACTS: dict[str, DatasetContract] = {
+    "gold_training_examples": GOLD_TRAINING_EXAMPLES,
+    "gold_live_signals": GOLD_LIVE_SIGNALS,
+}
+
+
+def _empty_partition_select_sql(contract: DatasetContract) -> str:
+    """Typed zero-row scan so DuckDB can create a view without touching Parquet."""
+
+    merged_dtypes: dict[str, Any] = dict(contract.dtypes or {})
+    columns = sorted(frozenset(contract.required_columns) | frozenset(merged_dtypes.keys()))
+    casts = ", ".join(
+        f"CAST(NULL AS {_pl_type_to_duckdb_sql(merged_dtypes.get(col, pl.String))}) AS {_duck_ident(col)}"
+        for col in columns
+    )
+    return f"SELECT {casts} WHERE FALSE"
+
+
+def _lake_glob_has_files(con: duckdb.DuckDBPyConnection, pattern: str) -> bool:
+    row = con.execute("SELECT 1 FROM glob(?) LIMIT 1", [pattern]).fetchone()
+    return row is not None
 
 
 def _lake_key(relative_key: str) -> str:
@@ -182,15 +265,23 @@ def create_duckdb_quality_db(
 
         for name, glob_key in silver_globs.items():
             uri = _s3_uri(glob_key, bucket=target_bucket)
-            select_expr = f"SELECT * FROM read_parquet({_sql_quote(uri)}, union_by_name=true)"
+            contract = _SILVER_VIEW_CONTRACTS[name]
+            if _lake_glob_has_files(con, uri):
+                select_expr = f"SELECT * FROM read_parquet({_sql_quote(uri)}, union_by_name=true)"
+            else:
+                select_expr = _empty_partition_select_sql(contract)
             verb = "TABLE" if materialize_tables else "VIEW"
             con.execute(f"CREATE OR REPLACE {verb} {name} AS {select_expr};")
 
         for name, key in gold_keys.items():
             uri = _s3_uri(key, bucket=target_bucket)
+            contract = _GOLD_VIEW_CONTRACTS[name]
             # Use union_by_name so both single-file and partitioned gold layouts are tolerant
             # to schema evolution and match silver view behavior.
-            select_expr = f"SELECT * FROM read_parquet({_sql_quote(uri)}, union_by_name=true)"
+            if _lake_glob_has_files(con, uri):
+                select_expr = f"SELECT * FROM read_parquet({_sql_quote(uri)}, union_by_name=true)"
+            else:
+                select_expr = _empty_partition_select_sql(contract)
             verb = "TABLE" if materialize_tables else "VIEW"
             con.execute(f"CREATE OR REPLACE {verb} {name} AS {select_expr};")
     finally:

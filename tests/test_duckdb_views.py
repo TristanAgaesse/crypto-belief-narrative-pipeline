@@ -230,6 +230,56 @@ def test_create_duckdb_quality_db_reads_partitioned_gold_when_partition_key_prov
         con.close()
 
 
+def test_create_duckdb_quality_db_empty_silver_partition_uses_typed_zero_row_view(
+    tmp_path, monkeypatch
+) -> None:
+    """When a date partition has no Parquet objects, DuckDB must not fail on read_parquet.
+
+    Soda/DQ still need a view with the contractual column names (zero rows).
+    """
+
+    _patch_paths(monkeypatch, tmp_path)
+
+    run_date = "2026-05-06"
+    # Deliberately omit belief_price_snapshots parquet under the partition.
+    for layer, dataset in [
+        ("silver", "crypto_candles_1m"),
+        ("silver", "narrative_counts"),
+        *[
+            ("silver", name.removeprefix("silver_"))
+            for name in _KALSHI_SILVER_TABLES
+        ],
+        *[
+            ("silver", name.removeprefix("silver_"))
+            for name in _FEAR_GREED_SILVER_TABLES
+        ],
+    ]:
+        q = Path(dv.partition_path(layer, dataset, run_date)) / "data.parquet"
+        q.parent.mkdir(parents=True, exist_ok=True)
+        pl.DataFrame({"x": [1]}).write_parquet(q)
+
+    for dataset in ("training_examples", "live_signals"):
+        gold_p = Path(dv.partition_path("gold", dataset, run_date)) / "data.parquet"
+        gold_p.parent.mkdir(parents=True, exist_ok=True)
+        pl.DataFrame({"x": [1]}).write_parquet(gold_p)
+
+    db_path = tmp_path / "quality_missing_belief.duckdb"
+    out = dv.create_duckdb_quality_db(run_date, db_path=db_path, materialize_tables=False)
+    assert out.exists()
+
+    con = duckdb.connect(str(out))
+    try:
+        assert con.execute("select count(*) from silver_belief_price_snapshots").fetchone()[0] == 0
+        cols = {
+            r[1]
+            for r in con.execute("pragma table_info('silver_belief_price_snapshots')").fetchall()
+        }
+        assert {"timestamp", "platform", "market_id", "outcome", "price"} <= cols
+        assert con.execute("select count(*) from silver_crypto_candles_1m").fetchone()[0] == 1
+    finally:
+        con.close()
+
+
 def test_create_duckdb_quality_db_honors_bucket_override(tmp_path, monkeypatch) -> None:
     """Sample mode passes ``bucket=<sample_lake_bucket>`` so silver + gold views
     must resolve through the override bucket, not the configured live bucket.
