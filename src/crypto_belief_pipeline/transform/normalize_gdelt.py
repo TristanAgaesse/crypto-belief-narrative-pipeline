@@ -39,6 +39,7 @@ def normalize_timeline(records: list[dict]) -> pl.DataFrame:
                 "source": pl.String,
                 "raw_json": pl.String,
                 "ingested_at": pl.Datetime,
+                "load_timestamp": pl.Datetime,
             }
         )
 
