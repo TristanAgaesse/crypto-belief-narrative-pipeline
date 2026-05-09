@@ -56,7 +56,7 @@ Schedules follow the same stem:
 - Polymarket: current-state API only (no historical query params); historical replay fidelity is limited by what staging captured.
 - Binance: best historical compatibility (`startTime`/`endTime` window support).
 - GDELT: day-granularity API query behavior may produce overlap across minute staging runs; canonical hourly layers should treat this as expected and rely on downstream dedupe semantics.
-- **GDELT is non-blocking for gold**: `silver_narrative_counts` may be empty; gold still materializes with null/default narrative features. The domain issue `narrative_counts_empty` is **informational** only. For CLI live runs without GDELT, empty narrative silver is written for that date so downstream reads stay consistent.
+- **GDELT is non-blocking for gold**: `silver_narrative_counts` may be empty; gold still materializes with null/default narrative features. The domain issue `narrative_counts_empty` is **informational** only. For CLI live runs without GDELT, empty narrative silver is written for that date so downstream reads stay consistent. For Dagster hourly gold, missing both the hourly `partition=.../data.parquet` and any narrative Parquet under the same `date=` prefix is treated the same way (empty narrative), matching `read_parquet_partition_df` on that prefix.
 - Kalshi: REST-first public Trade API (`config/kalshi_keywords.yaml` for limits and hypothesis scope per `docs/alpha_hypothesis.md`: scoped markets, per-market trades, no global orderbook fallback). Optional WebSocket ingestion is not enabled in MVP.
 
 ## Design principles

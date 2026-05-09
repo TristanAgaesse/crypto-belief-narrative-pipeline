@@ -100,12 +100,22 @@ def _partition_scoped_fallback_df(
     partition_prefix: str,
     partition_key: str,
     bucket: str | None,
+    allow_empty_when_missing: bool = False,
 ) -> pl.DataFrame:
-    """Fallback read for partitioned silver: scan prefix, then keep this hour only."""
+    """Fallback read for partitioned silver: scan prefix, then keep this hour only.
+
+    When the date prefix has no Parquet at all, :func:`read_parquet_partition_df`
+    returns a zero-width frame. Required inputs (belief, candles) still raise
+    :class:`LakeKeyNotFound`; optional narrative silver may return an empty frame
+    so gold matches the non-partitioned ``read_parquet_partition_df`` behavior.
+    """
     df = read_parquet_partition_df(partition_prefix, bucket=bucket)
     if df.width == 0:
-        # Preserve the original missing-key behavior when nothing exists at all.
-        raise LakeKeyNotFound(f"lake key not found: {partition_prefix}/partition={_safe_partition_slug(partition_key)}/data.parquet")
+        if allow_empty_when_missing:
+            return pl.DataFrame()
+        raise LakeKeyNotFound(
+            f"lake key not found: {partition_prefix}/partition={_safe_partition_slug(partition_key)}/data.parquet"
+        )
     if "timestamp" not in df.columns:
         raise ValueError(
             f"partition fallback requires `timestamp` column for hour scoping: {partition_prefix}"
@@ -124,6 +134,7 @@ def _read_partitioned_or_fallback(
     partition_prefix: str,
     partition_key: str,
     bucket: str | None,
+    allow_empty_when_missing: bool = False,
 ) -> pl.DataFrame:
     if explicit_key is not None:
         return read_parquet_df(explicit_key, bucket=bucket)
@@ -134,6 +145,7 @@ def _read_partitioned_or_fallback(
             partition_prefix=partition_prefix,
             partition_key=partition_key,
             bucket=bucket,
+            allow_empty_when_missing=allow_empty_when_missing,
         )
 
 
@@ -201,6 +213,7 @@ def build_gold_tables(
             partition_prefix=narrative_partition_prefix,
             partition_key=partition_key,
             bucket=bucket,
+            allow_empty_when_missing=True,
         )
         try:
             fear_greed_regime = read_parquet_df(
