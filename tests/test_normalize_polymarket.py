@@ -90,6 +90,35 @@ def test_normalize_price_snapshots_spread() -> None:
     assert df["spread"][0] == pytest.approx(0.02)
 
 
+def test_normalize_price_snapshots_many_leading_null_prices_then_float() -> None:
+    """Polars default infer_schema_length=100 must not infer Null for price then reject f64."""
+
+    base = {
+        "timestamp": "2026-05-06T10:00:00Z",
+        "market_id": "m",
+        "outcome": "Yes",
+        "best_bid": None,
+        "best_ask": None,
+        "liquidity": 1.0,
+        "volume": 2.0,
+        "raw": {},
+    }
+    records = [{**base, "price": None} for _ in range(150)] + [
+        {
+            **base,
+            "timestamp": "2026-05-06T10:01:00Z",
+            "price": 0.01,
+            "best_bid": 0.0,
+            "best_ask": 0.02,
+        }
+    ]
+    df = normalize_price_snapshots(records)
+    # Rows share (market_id, outcome); same timestamp dedupes to one null-price row
+    # plus the later timestamp with a float price.
+    assert df.height == 2
+    assert df.filter(pl.col("price") == 0.01).height == 1
+
+
 def test_normalize_price_snapshots_handles_mixed_int_and_float_numeric_fields() -> None:
     records = [
         {

@@ -76,7 +76,11 @@ def normalize_markets(records: list[dict]) -> pl.DataFrame:
         row["liquidity"] = _to_float_or_none(row.get("liquidity"))
         row["volume"] = _to_float_or_none(row.get("volume"))
         slim.append(row)
-    df = pl.DataFrame(slim).with_columns(pl.Series("raw_json", _raw_json(records)))
+    # Default infer_schema_length=100 can infer Null for numeric columns that are
+    # only null in the first chunk; later non-null floats then fail to append.
+    df = pl.DataFrame(slim, infer_schema_length=None).with_columns(
+        pl.Series("raw_json", _raw_json(records))
+    )
 
     bronze = df.select(
         pl.col("market_id").cast(pl.String),
@@ -127,7 +131,9 @@ def normalize_price_snapshots(records: list[dict]) -> pl.DataFrame:
         row["liquidity"] = _to_float_or_none(row.get("liquidity"))
         row["volume"] = _to_float_or_none(row.get("volume"))
         slim.append(row)
-    df = pl.DataFrame(slim).with_columns(pl.Series("raw_json", _raw_json(records)))
+    df = pl.DataFrame(slim, infer_schema_length=None).with_columns(
+        pl.Series("raw_json", _raw_json(records))
+    )
 
     bronze = (
         df.select(
