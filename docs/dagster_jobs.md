@@ -40,7 +40,7 @@ Layer order: raw → bronze → silver → gold → quality → reports. One job
 | `silver_to_gold__signals__5m_job` | `*/5` | Gold tables |
 | `gold__label_maturation__1h_job` | `0 *` | Label refresh |
 | `gold_to_quality__hourly_job` | `0 *` | Soda + gaps + issues |
-| `quality_to_reports__daily_job` | `0 10 * *` | Markdown reports |
+| `quality_to_reports__daily_job` | `0 10 * *` | Soda + `data_issues` + `markdown_reports` (single run; avoids missing IO inputs vs hourly quality) |
 | `full_stack__hourly__manual_job` | manual | Full canonical hour |
 | `full_stack__minute__manual_job` | manual | Staging only |
 

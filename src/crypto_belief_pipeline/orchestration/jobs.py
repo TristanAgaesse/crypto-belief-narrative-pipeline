@@ -102,7 +102,11 @@ gold_to_quality__hourly_job = define_asset_job(
 
 quality_to_reports__daily_job = define_asset_job(
     name="quality_to_reports__daily_job",
-    selection=AssetSelection.assets("markdown_reports"),
+    # Include upstream quality assets so inputs are materialized in-process (avoids IO load races
+    # with `gold_to_quality__hourly_job` when both schedules tick at 10:00 UTC).
+    selection=AssetSelection.assets(
+        "soda_data_quality", "data_issues", "markdown_reports"
+    ),
 )
 
 #
